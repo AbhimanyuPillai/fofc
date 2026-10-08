@@ -1,0 +1,20 @@
+# ==============================================================================
+# AeroFinger Project Dependencies Note:
+# ==============================================================================
+# This is a client-side JavaScript / Vite web application.
+# All primary runtime dependencies (@mediapipe/tasks-vision, lucide) and dev
+# tools (vite) are managed via npm / package.json:
+#
+#   npm install
+#   npm run dev
+#
+# If you plan to serve the compiled /dist folder or host a local static server
+# or edge WebSocket bridge with Python, the optional packages below can be used:
+# ==============================================================================
+
+# Optional: Lightweight static file server & live reload
+livereload>=2.6.3
+
+# Optional: FastAPI / Uvicorn if creating a local edge backend / bridge
+# fastapi>=0.110.0
+# uvicorn>=0.29.0
