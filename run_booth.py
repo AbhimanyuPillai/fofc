@@ -105,9 +105,15 @@ class MasterShellRequestHandler(SimpleHTTPRequestHandler):
 
 def start_fofc_server(port: int = 5173):
     """Starts static server for fofc_point/dist on port 5173."""
-    if not os.path.exists(FOFC_DIST_DIR):
-        print(f"[ORCHESTRATOR] Building fofc_point assets before serving...")
-        subprocess.run(["npm", "run", "build"], cwd=os.path.join(WORKSPACE_DIR, "fofc_point"), shell=True, check=True)
+    dist_index = os.path.join(WORKSPACE_DIR, "fofc_point", "dist", "index.html")
+    if os.path.exists(dist_index):
+        print("[ORCHESTRATOR] Verified fofc_point dist bundle exists. Skipping build.")
+    else:
+        print("[ORCHESTRATOR] dist missing, running npm build...")
+        try:
+            subprocess.run(["npm", "run", "build"], cwd=os.path.join(WORKSPACE_DIR, "fofc_point"), shell=True, check=True)
+        except Exception as e:
+            print(f"[ORCHESTRATOR WARNING] npm run build failed ({e}). Proceeding with available assets.")
 
     server = ThreadedHTTPServer(("127.0.0.1", port), FofcStaticRequestHandler)
     active_http_servers.append(server)

@@ -65,6 +65,9 @@ my_real_voices/
 !hi_IN-pratham-medium.onnx
 !hi_IN-pratham-medium.onnx.json
 !jarvis_vision/models/*.onnx
+!kokoro-v0_19.onnx
+!voices.bin
+!voices.json
 
 # ==============================================================================
 # Environment Variables & Local Secrets
@@ -99,3 +102,7 @@ logs/
 
 # Archived legacy files & experiments
 archive/
+*.onnx
+*.bin
+*.pt
+*.safetensors

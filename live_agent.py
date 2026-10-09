@@ -20,23 +20,22 @@ from faster_whisper import WhisperModel
 import audio_feedback
 import dashboard_server
 
-# Platform-specific eSpeak NG setup for Kokoro
+# Windows CUDA / DLL directory configuration for ONNX Runtime GPU
 if sys.platform.startswith("win"):
-    ESPEAK_PATH = r"C:\Program Files\eSpeak NG"
-    if os.path.exists(ESPEAK_PATH) and ESPEAK_PATH not in os.environ.get("PATH", ""):
-        os.environ["PATH"] += os.pathsep + ESPEAK_PATH
-        os.environ["PHONEMIZER_ESPEAK_PATH"] = ESPEAK_PATH
-
     torch_lib = os.path.join(sys.prefix, "Lib", "site-packages", "torch", "lib")
-    if os.path.exists(torch_lib):
-        os.environ["PATH"] = torch_lib + os.pathsep + os.environ.get("PATH", "")
-        if hasattr(os, "add_dll_directory"):
-            try:
-                os.add_dll_directory(torch_lib)
-            except Exception:
-                pass
+    cudnn_bin = os.path.join(sys.prefix, "Lib", "site-packages", "nvidia", "cudnn", "bin")
+    for dll_dir in [torch_lib, cudnn_bin]:
+        if os.path.exists(dll_dir):
+            if dll_dir not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = dll_dir + os.pathsep + os.environ.get("PATH", "")
+            if hasattr(os, "add_dll_directory"):
+                try:
+                    os.add_dll_directory(dll_dir)
+                except Exception:
+                    pass
 
-from kokoro import KPipeline
+import onnxruntime as ort
+from kokoro_onnx import Kokoro
 
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
@@ -184,16 +183,24 @@ def check_hey_repos_wake(text: str) -> bool:
 # ==========================================
 # MODEL INITIALIZATION
 # ==========================================
-print("[1/2] Loading Speech-to-Text (Faster-Whisper small.en on GPU)...")
-whisper_device = "cuda" if torch.cuda.is_available() else "cpu"
-whisper_compute = "float16" if torch.cuda.is_available() else "int8"
-
-stt_model = WhisperModel(
-    "small.en",
-    device=whisper_device,
-    compute_type=whisper_compute,
-    download_root=os.path.join(os.path.expanduser("~"), ".cache", "whisper")
-)
+if torch.cuda.is_available():
+    print("[STT INIT] Loading Faster-Whisper on CUDA (FP16)...")
+    whisper_model = WhisperModel(
+        "small.en",
+        device="cuda",
+        compute_type="float16",
+        download_root=os.path.join(os.path.expanduser("~"), ".cache", "whisper")
+    )
+else:
+    print("[STT INIT] No GPU detected. Loading Faster-Whisper on CPU (int8, 4 threads)...")
+    whisper_model = WhisperModel(
+        "base.en",
+        device="cpu",
+        compute_type="int8",
+        cpu_threads=4,
+        download_root=os.path.join(os.path.expanduser("~"), ".cache", "whisper")
+    )
+stt_model = whisper_model
 
 vad_model, utils = torch.hub.load(
     repo_or_dir="snakers4/silero-vad",
@@ -202,24 +209,28 @@ vad_model, utils = torch.hub.load(
 )
 (get_speech_timestamps, save_audio, read_audio, VADIterator, collect_chunks) = utils
 
-# Force CUDA Provider for Kokoro / ONNX
-import onnxruntime as ort
-providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-session = None
-try:
-    onnx_sample = os.path.join(os.path.dirname(__file__), "archive", "Hey_Repos.onnx")
-    if os.path.exists(onnx_sample):
-        session = ort.InferenceSession(onnx_sample, providers=providers)
-        print(f"[TTS GPU CHECK]: Kokoro active providers: {session.get_providers()}")
-    else:
-        avail = [p for p in providers if p in ort.get_available_providers()]
-        print(f"[TTS GPU CHECK]: Kokoro active providers: {avail}")
-except Exception as e:
-    avail = [p for p in providers if p in ort.get_available_providers()]
-    print(f"[TTS GPU CHECK]: Kokoro active providers: {avail}")
+# Dynamic ONNX Provider Selection for Kokoro
+available_providers = ort.get_available_providers()
+selected_providers = (
+    ['CUDAExecutionProvider', 'CPUExecutionProvider']
+    if 'CUDAExecutionProvider' in available_providers
+    else ['CPUExecutionProvider']
+)
 
-print("[2/2] Loading Conversational Voice Model (Kokoro)...")
-tts_pipeline = KPipeline(lang_code="a", device="cuda" if torch.cuda.is_available() else "cpu")
+WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
+model_path = os.path.join(WORKSPACE_DIR, "kokoro-v0_19.onnx") if os.path.exists(os.path.join(WORKSPACE_DIR, "kokoro-v0_19.onnx")) else "kokoro-v0_19.onnx"
+voices_path = os.path.join(WORKSPACE_DIR, "voices.bin") if os.path.exists(os.path.join(WORKSPACE_DIR, "voices.bin")) else (
+    os.path.join(WORKSPACE_DIR, "voices.json") if os.path.exists(os.path.join(WORKSPACE_DIR, "voices.json")) else "voices.json"
+)
+
+kokoro = Kokoro(
+    model_path=model_path,
+    voices_path=voices_path
+)
+if not hasattr(kokoro, "session"):
+    kokoro.session = kokoro.sess
+kokoro.session.set_providers(selected_providers)
+print(f"[TTS INIT] Kokoro-ONNX active providers: {kokoro.session.get_providers()}")
 
 audio_queue = queue.Queue()
 text_input_queue = queue.Queue()
@@ -427,15 +438,9 @@ def synthesize_and_queue(sentence: str):
     if not clean_sent or interrupt_requested:
         return
     try:
-        generator = tts_pipeline(clean_sent, voice=ACTIVE_VOICE, speed=VOICE_SPEED)
-        for _, _, audio in generator:
-            if interrupt_requested:
-                break
-            if isinstance(audio, torch.Tensor):
-                audio_arr = audio.detach().cpu().numpy()
-            else:
-                audio_arr = np.array(audio, dtype=np.float32)
-            playback_queue.put(audio_arr)
+        samples, sr = kokoro.create(clean_sent, voice=ACTIVE_VOICE, speed=VOICE_SPEED, lang="en-us")
+        if not interrupt_requested and samples is not None and len(samples) > 0:
+            playback_queue.put((samples, sr))
     except Exception as e:
         print(f"[SYNTH ERROR]: {e}")
 
@@ -495,13 +500,13 @@ def speak_direct(text: str):
     detect_and_broadcast_hardware(clean_text)
     dashboard_server.broadcast_transcript("JARVIS", clean_text)
     try:
-        generator = tts_pipeline(clean_text, voice=ACTIVE_VOICE, speed=VOICE_SPEED)
-        for _, _, audio in generator:
-            if interrupt_requested:
-                break
-            playback_queue.put((audio, 24000))
+        samples, sr = kokoro.create(clean_text, voice=ACTIVE_VOICE, speed=VOICE_SPEED, lang="en-us")
+        if not interrupt_requested and samples is not None and len(samples) > 0:
+            playback_queue.put((samples, sr))
         while (not playback_queue.empty() or is_audio_playing) and not interrupt_requested:
             time.sleep(0.02)
+    except Exception as e:
+        print(f"[TTS DIRECT ERROR]: {e}")
     finally:
         if interrupt_requested:
             clear_playback_queue()
