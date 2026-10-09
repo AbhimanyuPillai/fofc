@@ -244,6 +244,66 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     .toast.show { transform: translateY(0); opacity: 1; }
     .toast.success { border-color: rgba(16, 185, 129, 0.6); color: #34d399; }
     .toast.error { border-color: rgba(244, 63, 94, 0.6); color: #fb7185; }
+
+    /* Kiosk Embedded Mode for 3-in-1 Master Dashboard */
+    body.kiosk-embedded header,
+    body.kiosk-embedded section.panel:nth-of-type(2),
+    body.kiosk-embedded .panel-header,
+    body.kiosk-embedded #enrollCameraCtrls,
+    body.kiosk-embedded #enrollThumbsArea,
+    body.kiosk-embedded label,
+    body.kiosk-embedded .event-log {
+      display: none !important;
+    }
+    body.kiosk-embedded {
+      overflow: hidden !important;
+      height: 100vh !important;
+      width: 100vw !important;
+      background: #000 !important;
+    }
+    body.kiosk-embedded main {
+      display: block !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      overflow: hidden !important;
+    }
+    body.kiosk-embedded .panel {
+      border: none !important;
+      border-radius: 0 !important;
+      padding: 0 !important;
+      background: #000 !important;
+      height: 100vh !important;
+    }
+    body.kiosk-embedded .video-container {
+      width: 100% !important;
+      height: 100% !important;
+      max-height: 100vh !important;
+      border: none !important;
+      border-radius: 0 !important;
+      aspect-ratio: auto !important;
+    }
+    .kiosk-badge {
+      display: none;
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      padding: 5px 12px;
+      border-radius: 9999px;
+      background: rgba(10, 15, 29, 0.88);
+      border: 1px solid rgba(6, 182, 212, 0.5);
+      color: #38bdf8;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      z-index: 30;
+      backdrop-filter: blur(8px);
+    }
+    body.kiosk-embedded .kiosk-badge {
+      display: inline-flex !important;
+    }
   </style>
 </head>
 <body>
@@ -287,6 +347,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         <video id="webcam" autoplay playsinline muted></video>
         <canvas id="overlayCanvas" class="overlay"></canvas>
         <div class="hud-overlay-text" id="hudFps">FPS: -- | Engine: YuNet + SFace</div>
+        <div id="kioskBadge" class="kiosk-badge">STANDBY</div>
       </div>
 
       <!-- Controls below camera -->
@@ -366,6 +427,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <div id="toast" class="toast"></div>
 
   <script>
+    try {
+      const p = new URLSearchParams(window.location.search);
+      if (p.get('embedded') === 'true' || window.self !== window.top) {
+        document.body.classList.add('kiosk-embedded');
+      }
+    } catch (e) {}
+
     const webcam = document.getElementById('webcam');
     const overlayCanvas = document.getElementById('overlayCanvas');
     const overlayCtx = overlayCanvas.getContext('2d');
@@ -481,18 +549,29 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     }
 
     function handlePresenceState(event, user) {
+      const kBadge = document.getElementById('kioskBadge');
       if (event === "ARRIVAL" && user) {
         addLog(`ARRIVAL: ${user.display_name} (${user.role}) - Match: ${(user.score*100).toFixed(0)}%`, 'log-arrival');
         activeUserName.textContent = user.display_name;
         activeUserMeta.textContent = `Role: ${user.role} | Score: ${(user.score*100).toFixed(1)}%`;
         agentStateText.textContent = `SESSION LOCKED: ${user.display_name.toUpperCase()}`;
         agentStateText.parentElement.style.borderColor = 'rgba(16, 185, 129, 0.8)';
+        if (kBadge) {
+          kBadge.textContent = `${user.display_name.toUpperCase()} [${user.role.toUpperCase()}]`;
+          kBadge.style.borderColor = 'rgba(16, 185, 129, 0.8)';
+          kBadge.style.color = '#34d399';
+        }
       } else if (event === "DEPARTURE") {
         addLog(`DEPARTURE: User session cleared. Session reset.`, 'log-departure');
         activeUserName.textContent = "None (No Face Detected)";
         activeUserMeta.textContent = "Identity Lock: Standby";
         agentStateText.textContent = "AGENT STANDBY";
         agentStateText.parentElement.style.borderColor = 'rgba(16, 185, 129, 0.35)';
+        if (kBadge) {
+          kBadge.textContent = 'STANDBY';
+          kBadge.style.borderColor = 'rgba(6, 182, 212, 0.5)';
+          kBadge.style.color = '#38bdf8';
+        }
       }
     }
 

@@ -10,6 +10,14 @@ function refreshIcons() {
   createIcons({ icons });
 }
 
+// Minimal Kiosk Mode check for 3-in-1 Master Dashboard
+try {
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('embedded') === 'true' || window.self !== window.top) {
+    document.body.classList.add('kiosk-embedded');
+  }
+} catch (e) {}
+
 // Register Offline Edge Service Worker
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -29,7 +37,7 @@ class AgentBridge {
     this.ws = new WebSocket(this.url);
     this.ws.onopen = () => console.log('[AeroFinger Bridge] Connected to Jarvis Live Agent');
     this.ws.onclose = () => setTimeout(() => this.connect(), 1500);
-    this.ws.onerror = () => {};
+    this.ws.onerror = () => { };
   }
   sendTargetUpdate(boardName, isStable) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -107,8 +115,8 @@ class AeroFingerApp {
     this.btnToggleFit = document.getElementById('btn-toggle-fit');
     this.btnFullscreen = document.getElementById('btn-fullscreen');
 
-    // State
-    this.speechEnabled = true;
+    // State (Silent policy: all speech and tones disabled; updates route strictly via WebSocket)
+    this.speechEnabled = false;
     this.promptTimer = null;
     this.pendingAreaCallback = null;
 
@@ -208,22 +216,6 @@ class AeroFingerApp {
     if (this.bridge) {
       this.bridge.sendTargetUpdate(zone.name, true);
       this.lastReportedBoard = zone.name;
-    }
-
-    // Offline native Voice Announcement with Customizable Message
-    if (this.speechEnabled && 'speechSynthesis' in window) {
-      try {
-        window.speechSynthesis.cancel();
-        const textToSpeak = (zone.voiceMessage && zone.voiceMessage.trim()) 
-          ? zone.voiceMessage.trim() 
-          : `Pointing to ${zone.name}`;
-        const utterance = new SpeechSynthesisUtterance(textToSpeak);
-        utterance.rate = 1.05;
-        utterance.pitch = 1.0;
-        window.speechSynthesis.speak(utterance);
-      } catch (e) {
-        console.warn('[Speech] Voice error:', e);
-      }
     }
 
     if (this.promptTimer) clearTimeout(this.promptTimer);

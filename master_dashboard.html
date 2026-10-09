@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JARVIS Hardware Lab - Master Booth Dashboard Shell</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #070a13;
+      --bg-panel: rgba(13, 19, 33, 0.85);
+      --bg-panel-header: rgba(18, 26, 45, 0.95);
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --border-glow: rgba(6, 182, 212, 0.5);
+      --cyan: #06b6d4;
+      --cyan-glow: rgba(6, 182, 212, 0.35);
+      --emerald: #10b981;
+      --emerald-glow: rgba(16, 185, 129, 0.35);
+      --amber: #f59e0b;
+      --amber-glow: rgba(245, 158, 11, 0.35);
+      --slate: #64748b;
+      --indigo: #6366f1;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100vh;
+      overflow: hidden;
+      background-color: var(--bg-dark);
+      background-image: 
+        radial-gradient(circle at 10% 10%, rgba(6, 182, 212, 0.08) 0%, transparent 40%),
+        radial-gradient(circle at 90% 15%, rgba(99, 102, 241, 0.07) 0%, transparent 40%),
+        linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+      background-size: 100% 100%, 100% 100%, 32px 32px, 32px 32px;
+      color: var(--text-main);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* TOP HEADER */
+    header {
+      height: 58px;
+      min-height: 58px;
+      padding: 0 1.5rem;
+      border-bottom: 1px solid var(--border-subtle);
+      background: rgba(7, 10, 19, 0.88);
+      backdrop-filter: blur(16px);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 100;
+    }
+
+    .brand-section {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+    }
+
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 16px rgba(14, 165, 233, 0.4);
+    }
+
+    .brand-icon svg {
+      width: 20px;
+      height: 20px;
+      fill: none;
+      stroke: #ffffff;
+      stroke-width: 2.2;
+    }
+
+    .brand-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      background: linear-gradient(to right, #ffffff, #cbd5e1);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .brand-pill {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      padding: 2px 7px;
+      border-radius: 9999px;
+      background: rgba(6, 182, 212, 0.15);
+      border: 1px solid rgba(6, 182, 212, 0.4);
+      color: #38bdf8;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    /* Status Badges */
+    .header-center {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+    }
+
+    .state-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.4rem 1.1rem;
+      border-radius: 9999px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      border: 1px solid var(--border-subtle);
+      background: rgba(15, 23, 42, 0.85);
+      transition: all 0.3s ease;
+    }
+
+    .state-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      position: relative;
+    }
+
+    .state-dot::after {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      opacity: 0.4;
+      animation: pulse-ring 2s infinite;
+    }
+
+    @keyframes pulse-ring {
+      0% { transform: scale(0.9); opacity: 0.8; }
+      50% { transform: scale(1.6); opacity: 0.1; }
+      100% { transform: scale(0.9); opacity: 0.8; }
+    }
+
+    .state-badge.state-SLEEPING {
+      border-color: rgba(100, 116, 139, 0.5);
+      color: #94a3b8;
+    }
+    .state-badge.state-SLEEPING .state-dot,
+    .state-badge.state-SLEEPING .state-dot::after {
+      background: #64748b;
+    }
+
+    .state-badge.state-ACTIVE,
+    .state-badge.state-LISTENING {
+      border-color: rgba(6, 182, 212, 0.7);
+      color: #38bdf8;
+      box-shadow: 0 0 16px var(--cyan-glow);
+    }
+    .state-badge.state-ACTIVE .state-dot,
+    .state-badge.state-LISTENING .state-dot,
+    .state-badge.state-ACTIVE .state-dot::after,
+    .state-badge.state-LISTENING .state-dot::after {
+      background: var(--cyan);
+    }
+
+    .state-badge.state-THINKING {
+      border-color: rgba(245, 158, 11, 0.7);
+      color: #fbbf24;
+      box-shadow: 0 0 16px var(--amber-glow);
+    }
+    .state-badge.state-THINKING .state-dot,
+    .state-badge.state-THINKING .state-dot::after {
+      background: var(--amber);
+    }
+
+    .state-badge.state-SPEAKING {
+      border-color: rgba(16, 185, 129, 0.8);
+      color: #34d399;
+      box-shadow: 0 0 20px var(--emerald-glow);
+    }
+    .state-badge.state-SPEAKING .state-dot,
+    .state-badge.state-SPEAKING .state-dot::after {
+      background: var(--emerald);
+    }
+
+    .network-pills {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .net-pill {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .net-pill .indicator {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #10b981;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .btn-tool {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      padding: 5px 10px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-family: 'JetBrains Mono', monospace;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+    .btn-tool:hover {
+      background: rgba(30, 41, 59, 0.9);
+      color: var(--text-main);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    /* MAIN CONTAINER - 3 PANE LAYOUT */
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 58px);
+      padding: 0.75rem 1rem 0.75rem 1rem;
+      gap: 0.75rem;
+      overflow: hidden;
+    }
+
+    /* TOP ROW: DUAL CAMERA FEEDS (40% / 60%) */
+    .top-panes-row {
+      display: flex;
+      height: 56%;
+      min-height: 280px;
+      gap: 0.75rem;
+      width: 100%;
+    }
+
+    .pane-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+    }
+
+    .top-left-pane {
+      flex: 0 0 40%;
+      max-width: 40%;
+    }
+
+    .top-right-pane {
+      flex: 0 0 calc(60% - 0.75rem);
+      max-width: calc(60% - 0.75rem);
+    }
+
+    .pane-header {
+      height: 38px;
+      min-height: 38px;
+      padding: 0 1rem;
+      background: var(--bg-panel-header);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .pane-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      text-transform: uppercase;
+    }
+
+    .pane-title svg {
+      width: 15px;
+      height: 15px;
+      stroke: var(--cyan);
+    }
+
+    .pane-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(6, 182, 212, 0.12);
+      border: 1px solid rgba(6, 182, 212, 0.3);
+      color: #38bdf8;
+    }
+
+    .iframe-container {
+      flex: 1;
+      width: 100%;
+      height: calc(100% - 38px);
+      position: relative;
+      background: #000;
+      overflow: hidden;
+    }
+
+    .feed-iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+      background: #000;
+      overflow: hidden;
+    }
+
+    /* BOTTOM PANE: HARDWARE FOCUS & TERMINAL */
+    .bottom-pane {
+      flex: 1;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+    }
+
+    /* HARDWARE FOCUS CARDS ROW */
+    .hardware-bar {
+      padding: 0.5rem 1rem;
+      background: rgba(14, 21, 38, 0.95);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .hardware-bar-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .boards-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.65rem;
+      flex: 1;
+    }
+
+    .board-indicator {
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      padding: 0.45rem 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+    }
+
+    .board-indicator .board-info {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .board-indicator .board-name {
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #cbd5e1;
+      transition: color 0.25s ease;
+    }
+
+    .board-indicator .board-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.62rem;
+      color: var(--text-muted);
+    }
+
+    .board-badge-wrap {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .latched-badge {
+      display: none;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.62rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      padding: 2px 7px;
+      border-radius: 9999px;
+      text-transform: uppercase;
+      animation: pulse-latched 2s infinite ease-in-out;
+    }
+
+    .board-indicator.active-focus .latched-badge {
+      display: inline-flex;
+      align-items: center;
+    }
+
+    @keyframes pulse-latched {
+      0%, 100% { opacity: 0.9; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.05); }
+    }
+
+    .board-indicator .board-status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #475569;
+      transition: all 0.25s ease;
+    }
+
+    /* Active hardware focus persistent neon border & glowing badge */
+    .board-indicator.active-focus {
+      transform: translateY(-1px);
+    }
+
+    .board-indicator[data-board="esp32"].active-focus {
+      border: 1.5px solid #10b981;
+      background: rgba(16, 185, 129, 0.14);
+      box-shadow: 0 0 20px rgba(16, 185, 129, 0.45), inset 0 0 10px rgba(16, 185, 129, 0.15);
+    }
+    .board-indicator[data-board="esp32"].active-focus .latched-badge {
+      background: rgba(16, 185, 129, 0.25);
+      border: 1px solid #10b981;
+      color: #34d399;
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+    }
+    .board-indicator[data-board="esp32"].active-focus .board-status-dot {
+      background: #10b981;
+      box-shadow: 0 0 8px #10b981;
+    }
+    .board-indicator[data-board="esp32"].active-focus .board-name {
+      color: #34d399;
+      font-weight: 700;
+    }
+
+    .board-indicator[data-board="jetson"].active-focus {
+      border: 1.5px solid #06b6d4;
+      background: rgba(6, 182, 212, 0.14);
+      box-shadow: 0 0 20px rgba(6, 182, 212, 0.45), inset 0 0 10px rgba(6, 182, 212, 0.15);
+    }
+    .board-indicator[data-board="jetson"].active-focus .latched-badge {
+      background: rgba(6, 182, 212, 0.25);
+      border: 1px solid #06b6d4;
+      color: #38bdf8;
+      box-shadow: 0 0 10px rgba(6, 182, 212, 0.4);
+    }
+    .board-indicator[data-board="jetson"].active-focus .board-status-dot {
+      background: #06b6d4;
+      box-shadow: 0 0 8px #06b6d4;
+    }
+    .board-indicator[data-board="jetson"].active-focus .board-name {
+      color: #38bdf8;
+      font-weight: 700;
+    }
+
+    .board-indicator[data-board="stm32"].active-focus {
+      border: 1.5px solid #818cf8;
+      background: rgba(99, 102, 241, 0.14);
+      box-shadow: 0 0 20px rgba(99, 102, 241, 0.45), inset 0 0 10px rgba(99, 102, 241, 0.15);
+    }
+    .board-indicator[data-board="stm32"].active-focus .latched-badge {
+      background: rgba(99, 102, 241, 0.25);
+      border: 1px solid #818cf8;
+      color: #a5b4fc;
+      box-shadow: 0 0 10px rgba(99, 102, 241, 0.4);
+    }
+    .board-indicator[data-board="stm32"].active-focus .board-status-dot {
+      background: #818cf8;
+      box-shadow: 0 0 8px #818cf8;
+    }
+    .board-indicator[data-board="stm32"].active-focus .board-name {
+      color: #a5b4fc;
+      font-weight: 700;
+    }
+
+    .board-indicator[data-board="arduino"].active-focus {
+      border: 1.5px solid #f59e0b;
+      background: rgba(245, 158, 11, 0.14);
+      box-shadow: 0 0 20px rgba(245, 158, 11, 0.45), inset 0 0 10px rgba(245, 158, 11, 0.15);
+    }
+    .board-indicator[data-board="arduino"].active-focus .latched-badge {
+      background: rgba(245, 158, 11, 0.25);
+      border: 1px solid #f59e0b;
+      color: #fbbf24;
+      box-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
+    }
+    .board-indicator[data-board="arduino"].active-focus .board-status-dot {
+      background: #f59e0b;
+      box-shadow: 0 0 8px #f59e0b;
+    }
+    .board-indicator[data-board="arduino"].active-focus .board-name {
+      color: #fbbf24;
+      font-weight: 700;
+    }
+
+    /* MODERN CONVERSATIONAL DIALOGUE CONSOLE */
+    .terminal-body {
+      flex: 1;
+      background: #04060c;
+      padding: 0.85rem 1.25rem;
+      overflow-y: auto;
+      overflow-x: hidden;
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* Custom Scrollbar */
+    .terminal-body::-webkit-scrollbar {
+      width: 6px;
+    }
+    .terminal-body::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.2);
+    }
+    .terminal-body::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 4px;
+    }
+    .terminal-body::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.22);
+    }
+
+    /* Dialogue Message Cards */
+    .dialogue-msg {
+      display: flex;
+      flex-direction: column;
+      max-width: 90%;
+      padding: 0.6rem 0.95rem;
+      border-radius: 10px;
+      animation: fadeIn 0.18s ease-out;
+      position: relative;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(2px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .dialogue-msg.msg-user {
+      align-self: flex-start;
+      background: rgba(6, 182, 212, 0.08);
+      border: 1px solid rgba(6, 182, 212, 0.35);
+      border-left: 3.5px solid #06b6d4;
+    }
+
+    .dialogue-msg.msg-user .msg-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .dialogue-msg.msg-user .msg-sender-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #38bdf8;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .dialogue-msg.msg-user .msg-time {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      color: #475569;
+    }
+
+    .dialogue-msg.msg-user .msg-body {
+      color: #e0f2fe;
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+
+    .dialogue-msg.msg-jarvis {
+      align-self: flex-start;
+      background: rgba(16, 185, 129, 0.08);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      border-left: 3.5px solid #10b981;
+    }
+
+    .dialogue-msg.msg-jarvis .msg-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .dialogue-msg.msg-jarvis .msg-sender-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #34d399;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .dialogue-msg.msg-jarvis .msg-time {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      color: #475569;
+    }
+
+    .dialogue-msg.msg-jarvis .msg-body {
+      color: #6ee7b7;
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+
+    /* Muted Status Pill Badges Row */
+    .status-pill-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 2px 0;
+      animation: fadeIn 0.18s ease-out;
+    }
+
+    .dialogue-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 11px;
+      border-radius: 9999px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      font-weight: 600;
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      color: #94a3b8;
+    }
+
+    .dialogue-pill .pill-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #64748b;
+    }
+
+    .dialogue-pill.pill-listening {
+      border-color: rgba(6, 182, 212, 0.5);
+      color: #38bdf8;
+      background: rgba(6, 182, 212, 0.12);
+    }
+    .dialogue-pill.pill-listening .pill-dot {
+      background: #06b6d4;
+      box-shadow: 0 0 6px #06b6d4;
+    }
+
+    .dialogue-pill.pill-speaking {
+      border-color: rgba(16, 185, 129, 0.5);
+      color: #34d399;
+      background: rgba(16, 185, 129, 0.12);
+    }
+    .dialogue-pill.pill-speaking .pill-dot {
+      background: #10b981;
+      box-shadow: 0 0 6px #10b981;
+    }
+
+    .dialogue-pill.pill-thinking {
+      border-color: rgba(245, 158, 11, 0.5);
+      color: #fbbf24;
+      background: rgba(245, 158, 11, 0.12);
+    }
+    .dialogue-pill.pill-thinking .pill-dot {
+      background: #f59e0b;
+      box-shadow: 0 0 6px #f59e0b;
+    }
+
+    .dialogue-pill.pill-target {
+      border-color: rgba(99, 102, 241, 0.5);
+      color: #a5b4fc;
+      background: rgba(99, 102, 241, 0.14);
+    }
+    .dialogue-pill.pill-target .pill-dot {
+      background: #818cf8;
+      box-shadow: 0 0 6px #818cf8;
+    }
+
+    .dialogue-pill.pill-system {
+      border-color: rgba(148, 163, 184, 0.25);
+      color: #94a3b8;
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 900px) {
+      .top-panes-row {
+        flex-direction: column;
+        height: auto;
+      }
+      .top-left-pane, .top-right-pane {
+        flex: 1 1 100%;
+        max-width: 100%;
+        height: 260px;
+      }
+      .boards-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header>
+    <div class="brand-section">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path></svg>
+      </div>
+      <div class="brand-title">
+        JARVIS HARDWARE LAB
+        <span class="brand-pill">Native 3-in-1 Shell</span>
+      </div>
+    </div>
+
+    <div class="header-center">
+      <!-- Live State Badge -->
+      <div id="state-badge" class="state-badge state-SLEEPING">
+        <div class="state-dot"></div>
+        <span id="state-text">STANDBY</span>
+      </div>
+
+      <!-- Network Subsystem Health -->
+      <div class="network-pills">
+        <div class="net-pill" title="Camera 1 Face Detection Server">
+          <span class="indicator"></span>
+          <span>Face Cam :8088</span>
+        </div>
+        <div class="net-pill" title="Camera 2 AeroFinger Pointing Engine">
+          <span class="indicator"></span>
+          <span>AeroFinger :5173</span>
+        </div>
+        <div class="net-pill" title="Core Hardware Agent Bridge">
+          <span class="indicator"></span>
+          <span>Agent WS :8765</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <button id="btn-autoscroll" class="btn-tool" title="Toggle Autoscroll">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
+        <span>Auto-Scroll: ON</span>
+      </button>
+      <button id="btn-clear-term" class="btn-tool" title="Clear Console Log">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+        <span>Clear</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- 3-PANE MASTER LAYOUT -->
+  <main>
+    <!-- TOP ROW (40% / 60% DUAL VIDEO HUDS) -->
+    <div class="top-panes-row">
+      <!-- Top-Left Pane (40% width): Face Detection Feed -->
+      <div class="pane-card top-left-pane">
+        <div class="pane-header">
+          <div class="pane-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="7" r="4"></circle><path d="M5.5 21a8.38 8.38 0 0 1 13 0"></path></svg>
+            Face Cam (YuNet + SFace)
+          </div>
+          <span class="pane-badge">:8088</span>
+        </div>
+        <div class="iframe-container">
+          <iframe id="iframe-face" class="feed-iframe" src="http://127.0.0.1:8088/?embedded=true" scrolling="no" allow="camera; microphone"></iframe>
+        </div>
+      </div>
+
+      <!-- Top-Right Pane (60% width): AeroFinger Pointing Feed -->
+      <div class="pane-card top-right-pane">
+        <div class="pane-header">
+          <div class="pane-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path></svg>
+            AeroFinger Pointing HUD (MediaPipe 3D)
+          </div>
+          <span class="pane-badge">:5173</span>
+        </div>
+        <div class="iframe-container">
+          <iframe id="iframe-point" class="feed-iframe" src="http://127.0.0.1:5173/?embedded=true" scrolling="no" allow="camera; microphone"></iframe>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOTTOM PANE (FULL WIDTH): HARDWARE FOCUS & LIVE DIALOGUE CONSOLE -->
+    <div class="bottom-pane">
+      <!-- Hardware Focus Row -->
+      <div class="hardware-bar">
+        <div class="hardware-bar-title">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>
+          Active Hardware Target
+        </div>
+
+        <div class="boards-grid">
+          <!-- ESP32-S3 -->
+          <div class="board-indicator" data-board="esp32" id="board-esp32">
+            <div class="board-info">
+              <span class="board-name">ESP32-S3 DevKit</span>
+              <span class="board-tag">Dual-Core Xtensa LX7</span>
+            </div>
+            <div class="board-badge-wrap">
+              <span class="latched-badge">LATCHED</span>
+              <div class="board-status-dot"></div>
+            </div>
+          </div>
+
+          <!-- NVIDIA Jetson -->
+          <div class="board-indicator" data-board="jetson" id="board-jetson">
+            <div class="board-info">
+              <span class="board-name">NVIDIA Jetson Orin Nano</span>
+              <span class="board-tag">40 TOPS Ampere GPU</span>
+            </div>
+            <div class="board-badge-wrap">
+              <span class="latched-badge">LATCHED</span>
+              <div class="board-status-dot"></div>
+            </div>
+          </div>
+
+          <!-- STM32 Nucleo -->
+          <div class="board-indicator" data-board="stm32" id="board-stm32">
+            <div class="board-info">
+              <span class="board-name">STM32 Nucleo-F446RE</span>
+              <span class="board-tag">ARM Cortex-M4 @ 180MHz</span>
+            </div>
+            <div class="board-badge-wrap">
+              <span class="latched-badge">LATCHED</span>
+              <div class="board-status-dot"></div>
+            </div>
+          </div>
+
+          <!-- Arduino Uno Rev4 -->
+          <div class="board-indicator" data-board="arduino" id="board-arduino">
+            <div class="board-info">
+              <span class="board-name">Arduino Uno Rev4</span>
+              <span class="board-tag">Renesas RA4M1 32-bit</span>
+            </div>
+            <div class="board-badge-wrap">
+              <span class="latched-badge">LATCHED</span>
+              <div class="board-status-dot"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Real-Time Jarvis Conversational Console & Dialogue Feed -->
+      <div id="terminal-body" class="terminal-body">
+        <div class="status-pill-row">
+          <div class="dialogue-pill pill-system">
+            <span class="pill-dot"></span>
+            <span>JARVIS Master Booth Shell Initialized • Awaiting dialogue...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- DIALOGUE STREAM & IPC CLIENT SCRIPT -->
+  <script>
+    const termBody = document.getElementById('terminal-body');
+    const stateBadge = document.getElementById('state-badge');
+    const stateText = document.getElementById('state-text');
+    const btnAutoScroll = document.getElementById('btn-autoscroll');
+    const btnClearTerm = document.getElementById('btn-clear-term');
+
+    let autoScrollEnabled = true;
+
+    btnAutoScroll.addEventListener('click', () => {
+      autoScrollEnabled = !autoScrollEnabled;
+      btnAutoScroll.querySelector('span').innerText = `Auto-Scroll: ${autoScrollEnabled ? 'ON' : 'OFF'}`;
+      btnAutoScroll.style.color = autoScrollEnabled ? '#38bdf8' : '#94a3b8';
+    });
+
+    btnClearTerm.addEventListener('click', () => {
+      termBody.innerHTML = '';
+      appendDialogueMessage('SYSTEM', 'Console buffer cleared.');
+    });
+
+    function getFormattedTime() {
+      const d = new Date();
+      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    function cleanScroll() {
+      while (termBody.children.length > 250) {
+        termBody.removeChild(termBody.firstChild);
+      }
+      if (autoScrollEnabled) {
+        termBody.scrollTop = termBody.scrollHeight;
+      }
+    }
+
+    // STATE BADGE UPDATER
+    function updateStateBadge(newState) {
+      const s = (newState || 'SLEEPING').toUpperCase();
+      stateBadge.className = `state-badge state-${s}`;
+      stateText.innerText = s;
+    }
+
+    // STICKY HARDWARE FOCUS HIGHLIGHTER (STATE LATCHING)
+    let currentLatchedBoardKey = null;
+
+    function updateHardwareFocus(boardKey) {
+      // Sticky rule: if boardKey is null, empty or undefined, retain the existing latch!
+      if (!boardKey || !String(boardKey).trim()) {
+        return;
+      }
+
+      const key = String(boardKey).toLowerCase();
+      let matched = null;
+      if (key.includes('esp32')) matched = document.getElementById('board-esp32');
+      else if (key.includes('jetson') || key.includes('orin')) matched = document.getElementById('board-jetson');
+      else if (key.includes('stm32') || key.includes('nucleo')) matched = document.getElementById('board-stm32');
+      else if (key.includes('arduino') || key.includes('uno')) matched = document.getElementById('board-arduino');
+
+      if (matched) {
+        currentLatchedBoardKey = key;
+        const allCards = document.querySelectorAll('.board-indicator');
+        allCards.forEach(c => c.classList.remove('active-focus'));
+        matched.classList.add('active-focus');
+      }
+    }
+
+    // STREAMING TOKEN ACCUMULATOR
+    function handleStreamChunk(role, chunk) {
+      if (!chunk || !chunk.trim()) return;
+      let activeBubble = termBody.querySelector('.dialogue-msg.msg-jarvis.streaming-active');
+      if (!activeBubble) {
+        activeBubble = document.createElement('div');
+        activeBubble.className = 'dialogue-msg msg-jarvis streaming-active';
+        activeBubble.innerHTML = `
+          <div class="msg-header">
+            <span class="msg-sender-tag">[JARVIS]</span>
+            <span class="msg-time">${getFormattedTime()}</span>
+          </div>
+          <div class="msg-body"></div>
+        `;
+        termBody.appendChild(activeBubble);
+      }
+      const bodyEl = activeBubble.querySelector('.msg-body');
+      bodyEl.innerText += (bodyEl.innerText ? ' ' : '') + chunk;
+      cleanScroll();
+    }
+
+    // FORMATTED DIALOGUE & STATUS EVENT PRINTER
+    function appendDialogueMessage(role, text) {
+      if (!text || !text.trim()) return;
+      const rawText = text.trim();
+
+      // STRICT NOISE FILTER: Completely filter out HTTP status codes, socket handshakes, and POST notices
+      const noisePatterns = [
+        "POST /api", "GET /api", "GET /", "OPTIONS /", "HTTP/1.", "200 OK", "404 Not Found",
+        "terminal_log", "recognize_frame", "presence_state", "WebSocket", "connection_lost",
+        "INFO:", "DEBUG:", "WARNING:", "heartbeat", "multipart/form-data", "piping", "Uvicorn running"
+      ];
+      if (noisePatterns.some(n => rawText.includes(n)) &&
+          !rawText.includes("[YOU]:") && !rawText.includes("[USER]:") &&
+          !rawText.includes("[JARVIS]:") && !rawText.includes("[AGENT]:") &&
+          !rawText.includes("[STATUS") && !rawText.includes("[HARDWARE]") &&
+          !rawText.includes("[FOCUS]") && !rawText.includes("[WAKE WORD")) {
+        return;
+      }
+
+      const upperRole = (role || '').toUpperCase();
+
+      // 1. HARDWARE LATCH / FOCUS EVENT
+      if (upperRole === 'FOCUS' || rawText.includes('[HARDWARE]') || rawText.includes('[FOCUS]')) {
+        let boardName = text;
+        if (text.includes('to:')) boardName = text.split('to:')[1].trim();
+        else if (text.includes('locked:')) boardName = text.split('locked:')[1].trim();
+        else if (text.includes(':')) boardName = text.split(':')[1].trim();
+        boardName = boardName.replace(/[\[\]]/g, '').trim();
+
+        updateHardwareFocus(boardName);
+
+        const pillRow = document.createElement('div');
+        pillRow.className = 'status-pill-row';
+        pillRow.innerHTML = `
+          <div class="dialogue-pill pill-target">
+            <span class="pill-dot"></span>
+            <span>TARGET: ${escapeHtml(boardName)}</span>
+          </div>
+        `;
+        termBody.appendChild(pillRow);
+        cleanScroll();
+        return;
+      }
+
+      // 2. STATE TRANSITIONS
+      if (upperRole === 'STATE' || rawText.startsWith('[STATUS') || rawText.includes('[STATUS:')) {
+        let stateVal = 'ACTIVE';
+        if (rawText.toLowerCase().includes('listening')) stateVal = 'LISTENING';
+        else if (rawText.toLowerCase().includes('speaking')) stateVal = 'SPEAKING';
+        else if (rawText.toLowerCase().includes('thinking')) stateVal = 'THINKING';
+        else if (rawText.toLowerCase().includes('sleeping') || rawText.toLowerCase().includes('standby')) stateVal = 'SLEEPING';
+        else if (rawText.toLowerCase().includes('active')) stateVal = 'ACTIVE';
+
+        updateStateBadge(stateVal);
+
+        const pillRow = document.createElement('div');
+        pillRow.className = 'status-pill-row';
+        const pillClass = stateVal.toLowerCase();
+        pillRow.innerHTML = `
+          <div class="dialogue-pill pill-${pillClass}">
+            <span class="pill-dot"></span>
+            <span>[${stateVal.toUpperCase()}]</span>
+          </div>
+        `;
+        termBody.appendChild(pillRow);
+        cleanScroll();
+        return;
+      }
+
+      // 3. WAKE WORD DETECTED
+      if (rawText.includes('[WAKE WORD')) {
+        updateStateBadge('LISTENING');
+        const pillRow = document.createElement('div');
+        pillRow.className = 'status-pill-row';
+        pillRow.innerHTML = `
+          <div class="dialogue-pill pill-listening">
+            <span class="pill-dot"></span>
+            <span>[WAKE WORD TRIGGERED]</span>
+          </div>
+        `;
+        termBody.appendChild(pillRow);
+        cleanScroll();
+        return;
+      }
+
+      // 4. USER SPEECH (CYAN ACCENT)
+      if (upperRole === 'USER' || upperRole === 'YOU' || rawText.startsWith('[USER]:') || rawText.startsWith('[YOU]:')) {
+        let cleanContent = rawText;
+        if (cleanContent.startsWith('[USER]:')) cleanContent = cleanContent.slice(7).trim();
+        else if (cleanContent.startsWith('[YOU]:')) cleanContent = cleanContent.slice(6).trim();
+
+        const msgCard = document.createElement('div');
+        msgCard.className = 'dialogue-msg msg-user';
+        msgCard.innerHTML = `
+          <div class="msg-header">
+            <span class="msg-sender-tag">[USER]</span>
+            <span class="msg-time">${getFormattedTime()}</span>
+          </div>
+          <div class="msg-body">${escapeHtml(cleanContent)}</div>
+        `;
+        termBody.appendChild(msgCard);
+        cleanScroll();
+        return;
+      }
+
+      // 5. JARVIS SPEECH (EMERALD GREEN ACCENT)
+      if (upperRole === 'JARVIS' || upperRole === 'AGENT' || rawText.startsWith('[JARVIS]:') || rawText.startsWith('[AGENT]:') || rawText.startsWith('[AGENT STREAMING]:')) {
+        let cleanContent = rawText;
+        if (cleanContent.includes(']:')) cleanContent = cleanContent.split(']:')[1].trim().replace(/^"/, '').replace(/"$/, '');
+
+        // If a streaming bubble was open, finish it with full content
+        const activeBubble = termBody.querySelector('.dialogue-msg.msg-jarvis.streaming-active');
+        if (activeBubble) {
+          activeBubble.classList.remove('streaming-active');
+          activeBubble.querySelector('.msg-body').innerText = cleanContent;
+          cleanScroll();
+          return;
+        }
+
+        const msgCard = document.createElement('div');
+        msgCard.className = 'dialogue-msg msg-jarvis';
+        msgCard.innerHTML = `
+          <div class="msg-header">
+            <span class="msg-sender-tag">[JARVIS]</span>
+            <span class="msg-time">${getFormattedTime()}</span>
+          </div>
+          <div class="msg-body">${escapeHtml(cleanContent)}</div>
+        `;
+        termBody.appendChild(msgCard);
+        cleanScroll();
+        return;
+      }
+
+      // 6. GENERAL SYSTEM NOTICE
+      const pillRow = document.createElement('div');
+      pillRow.className = 'status-pill-row';
+      pillRow.innerHTML = `
+        <div class="dialogue-pill pill-system">
+          <span class="pill-dot"></span>
+          <span>${escapeHtml(rawText)}</span>
+        </div>
+      `;
+      termBody.appendChild(pillRow);
+      cleanScroll();
+    }
+
+    // SSE TELEMETRY STREAM CONNECTION
+    let evtSource = null;
+    function connectTerminalStream() {
+      const streamUrl = 'http://127.0.0.1:8088/terminal_stream';
+      evtSource = new EventSource(streamUrl);
+
+      evtSource.onopen = () => {
+        appendDialogueMessage('SYSTEM', `Telemetry stream connected (:8088)`);
+      };
+
+      evtSource.onmessage = (event) => {
+        try {
+          if (!event.data || event.data.trim() === ': ping') return;
+          const data = JSON.parse(event.data);
+
+          if (data.type === 'state') {
+            appendDialogueMessage('STATE', data.state);
+          } else if (data.type === 'focus') {
+            if (data.board) {
+              updateHardwareFocus(data.board);
+              appendDialogueMessage('FOCUS', data.board);
+            } else if (data.text) {
+              appendDialogueMessage('FOCUS', data.text);
+            }
+          } else if (data.type === 'transcript') {
+            appendDialogueMessage(data.role, data.text);
+          } else if (data.type === 'stream_chunk') {
+            handleStreamChunk(data.role, data.chunk);
+          } else if (data.type === 'log') {
+            appendDialogueMessage('SYSTEM', data.text);
+          }
+        } catch (err) {
+          appendDialogueMessage('SYSTEM', event.data);
+        }
+      };
+
+      evtSource.onerror = (err) => {
+        evtSource.close();
+        setTimeout(connectTerminalStream, 2000);
+      };
+    }
+
+    connectTerminalStream();
+  </script>
+</body>
+</html>

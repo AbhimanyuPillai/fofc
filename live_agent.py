@@ -27,6 +27,15 @@ if sys.platform.startswith("win"):
         os.environ["PATH"] += os.pathsep + ESPEAK_PATH
         os.environ["PHONEMIZER_ESPEAK_PATH"] = ESPEAK_PATH
 
+    torch_lib = os.path.join(sys.prefix, "Lib", "site-packages", "torch", "lib")
+    if os.path.exists(torch_lib):
+        os.environ["PATH"] = torch_lib + os.pathsep + os.environ.get("PATH", "")
+        if hasattr(os, "add_dll_directory"):
+            try:
+                os.add_dll_directory(torch_lib)
+            except Exception:
+                pass
+
 from kokoro import KPipeline
 
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
@@ -41,6 +50,55 @@ INACTIVITY_TIMEOUT = 180.0
 
 SAMPLE_RATE = 16000
 CHUNK_SIZE = 512          # 32ms frames (Silero VAD requirement)
+
+def get_realtek_mic_index() -> Optional[int]:
+    """
+    Resolves the input device index for 'Microphone Array (Realtek HD Audio Mic input)'.
+    Checks device index 24 first. If not at 24, dynamically queries for Realtek Microphone Array,
+    strictly excluding 'Stereo Mix' and 'video' / 'webcam' inputs.
+    """
+    try:
+        devices = sd.query_devices()
+        total = len(devices)
+
+        # 1. Check preferred device index 24 first
+        if 24 < total:
+            d24 = devices[24]
+            name_24 = d24.get("name", "").lower()
+            if d24.get("max_input_channels", 0) > 0 and ("microphone array" in name_24 or "realtek" in name_24):
+                if "stereo mix" not in name_24 and "video" not in name_24 and "webcam" not in name_24:
+                    # Test if WDM-KS device 24 supports SAMPLE_RATE directly
+                    try:
+                        sd.check_input_settings(device=24, samplerate=SAMPLE_RATE, channels=1)
+                        return 24
+                    except Exception:
+                        pass
+
+        # 2. Dynamically query for matching 'microphone array' and 'realtek', strictly excluding stereo mix / video / webcam
+        for idx, dev in enumerate(devices):
+            if dev.get("max_input_channels", 0) <= 0:
+                continue
+            name = dev.get("name", "").lower()
+            if "stereo mix" in name or "video" in name or "webcam" in name:
+                continue
+            if "microphone array" in name and "realtek" in name:
+                try:
+                    sd.check_input_settings(device=idx, samplerate=SAMPLE_RATE, channels=1)
+                    return idx
+                except Exception:
+                    continue
+
+        # 3. Direct index 24 fallback if query didn't find resampled alternative
+        if 24 < total:
+            d24 = devices[24]
+            name_24 = d24.get("name", "").lower()
+            if d24.get("max_input_channels", 0) > 0 and ("microphone array" in name_24 or "realtek" in name_24):
+                return 24
+
+    except Exception as e:
+        print(f"[AUDIO DEVICE QUERY ERROR]: {e}")
+
+    return None
 
 # ==========================================
 # AUTO-START OLLAMA SERVICE
@@ -98,6 +156,31 @@ ensure_ollama_running()
 system_prompt = load_system_prompt(INSTRUCTIONS_FILE)
 dialog_turns = []
 
+def check_hey_repos_wake(text: str) -> bool:
+    """
+    Triggers ONLY when 'hey' (or phonetic variants) is directly followed
+    by 'repos' / 'repose' / variants.
+    Ignores trailing punctuation, capitalization, and unrelated mentions.
+    """
+    if not text:
+        return False
+
+    cleaned = re.sub(r"[^\w\s]", " ", text.lower())
+    words = cleaned.split()
+
+    hey_variants = {"hey", "hay", "ay"}
+    repos_variants = {"repos", "repose", "reposes", "raypos", "repo", "ripples", "rappos"}
+
+    for i in range(len(words) - 1):
+        if words[i] in hey_variants and words[i + 1] in repos_variants:
+            return True
+
+    # Fallback for concatenated token outputs (e.g., "heyrepos")
+    if re.search(r"\b(hey|hay)(repos|repose|repo)\b", "".join(words)):
+        return True
+
+    return False
+
 # ==========================================
 # MODEL INITIALIZATION
 # ==========================================
@@ -119,13 +202,30 @@ vad_model, utils = torch.hub.load(
 )
 (get_speech_timestamps, save_audio, read_audio, VADIterator, collect_chunks) = utils
 
+# Force CUDA Provider for Kokoro / ONNX
+import onnxruntime as ort
+providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+session = None
+try:
+    onnx_sample = os.path.join(os.path.dirname(__file__), "archive", "Hey_Repos.onnx")
+    if os.path.exists(onnx_sample):
+        session = ort.InferenceSession(onnx_sample, providers=providers)
+        print(f"[TTS GPU CHECK]: Kokoro active providers: {session.get_providers()}")
+    else:
+        avail = [p for p in providers if p in ort.get_available_providers()]
+        print(f"[TTS GPU CHECK]: Kokoro active providers: {avail}")
+except Exception as e:
+    avail = [p for p in providers if p in ort.get_available_providers()]
+    print(f"[TTS GPU CHECK]: Kokoro active providers: {avail}")
+
 print("[2/2] Loading Conversational Voice Model (Kokoro)...")
-tts_pipeline = KPipeline(lang_code="a")
+tts_pipeline = KPipeline(lang_code="a", device="cuda" if torch.cuda.is_available() else "cpu")
 
 audio_queue = queue.Queue()
 text_input_queue = queue.Queue()
 tts_text_queue = queue.Queue()
-tts_audio_queue = queue.Queue()
+playback_queue = queue.Queue()
+is_audio_playing = False
 
 is_agent_speaking = False
 interrupt_requested = False
@@ -138,16 +238,24 @@ pointed_board_lock = threading.Lock()
 
 async def pointing_ws_handler(websocket):
     global current_pointed_board
-    async for message in websocket:
-        try:
-            data = json.loads(message)
-            if data.get("type") == "POINTING_UPDATE":
-                with pointed_board_lock:
-                    current_pointed_board = data.get("board")
-                if "dashboard_server" in globals() and hasattr(dashboard_server, "set_hardware_focus"):
-                    dashboard_server.set_hardware_focus(current_pointed_board)
-        except Exception:
-            pass
+    try:
+        async for message in websocket:
+            try:
+                data = json.loads(message)
+                if data.get("type") == "POINTING_UPDATE":
+                    new_board = data.get("board")
+                    if new_board is not None and str(new_board).strip():
+                        board_str = str(new_board).strip()
+                        with pointed_board_lock:
+                            current_pointed_board = board_str
+                        print(f"[HARDWARE] Latched active board to: {board_str}")
+                        if "dashboard_server" in globals() and hasattr(dashboard_server, "set_hardware_focus"):
+                            dashboard_server.set_hardware_focus(board_str)
+                    # When board is None (hand pulled back), DO NOT reset; preserve latched state
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 def start_pointing_server():
     loop = asyncio.new_event_loop()
@@ -217,57 +325,60 @@ def audio_callback(indata, frames, time_info, status):
     else:
         consecutive_speech_frames = 0
 
-class AudioPlayer:
-    def __init__(self, rate: int = 24000):
-        self.rate = rate
-        self._q = collections.deque()
-        self._cur = None
-        self._pos = 0
-        self._lock = threading.Lock()
-        self._stream = sd.OutputStream(
-            samplerate=rate, channels=1, dtype="float32", callback=self._callback
-        )
-        self._stream.start()
+# Decoupled Audio Playback Worker
+def audio_player_worker():
+    global is_audio_playing, interrupt_requested
+    while True:
+        chunk = playback_queue.get()
+        if chunk is None:
+            playback_queue.task_done()
+            break
+        try:
+            if not interrupt_requested:
+                is_audio_playing = True
+                if isinstance(chunk, tuple):
+                    audio_data, sr = chunk
+                else:
+                    audio_data, sr = chunk, 24000
+                if isinstance(audio_data, torch.Tensor):
+                    audio_data = audio_data.detach().cpu().numpy()
+                audio_arr = np.ascontiguousarray(audio_data, dtype=np.float32).squeeze()
+                if audio_arr.size > 0:
+                    sd.play(audio_arr, samplerate=sr)
+                    sd.wait()
+        except Exception as e:
+            print(f"[AUDIO PLAYBACK ERROR]: {e}")
+        finally:
+            is_audio_playing = False
+            playback_queue.task_done()
 
-    def _callback(self, outdata, frames, time_info, status):
-        out = outdata[:, 0]
-        out.fill(0.0)
-        filled = 0
-        with self._lock:
-            while filled < frames:
-                if self._cur is None:
-                    if not self._q:
-                        break
-                    self._cur = self._q.popleft()
-                    self._pos = 0
-                n = min(frames - filled, len(self._cur) - self._pos)
-                out[filled:filled + n] = self._cur[self._pos:self._pos + n]
-                filled += n
-                self._pos += n
-                if self._pos >= len(self._cur):
-                    self._cur = None
+threading.Thread(target=audio_player_worker, daemon=True, name="AudioPlayerWorker").start()
 
+def clear_playback_queue():
+    global interrupt_requested
+    try:
+        sd.stop()
+    except Exception:
+        pass
+    while not playback_queue.empty():
+        try:
+            playback_queue.get_nowait()
+            playback_queue.task_done()
+        except queue.Empty:
+            break
+
+class PlayerCompat:
     @property
     def busy(self) -> bool:
-        return self._cur is not None or len(self._q) > 0
-
-    def enqueue(self, audio: np.ndarray):
-        audio = np.ascontiguousarray(audio, dtype=np.float32).squeeze()
-        if audio.size == 0:
-            return
-        with self._lock:
-            self._q.append(audio)
-
+        return is_audio_playing or not playback_queue.empty()
+    def enqueue(self, audio: np.ndarray, samplerate: int = 24000):
+        playback_queue.put((audio, samplerate))
     def clear(self):
-        with self._lock:
-            self._q.clear()
-            self._cur = None
-            self._pos = 0
-
+        clear_playback_queue()
     def stop(self):
-        self.clear()
+        clear_playback_queue()
 
-player = AudioPlayer(24000)
+player = PlayerCompat()
 
 def clean_text_for_tts(text: str) -> str:
     if not text:
@@ -310,6 +421,24 @@ def clean_text_for_tts(text: str) -> str:
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
+def synthesize_and_queue(sentence: str):
+    global interrupt_requested
+    clean_sent = clean_text_for_tts(sentence)
+    if not clean_sent or interrupt_requested:
+        return
+    try:
+        generator = tts_pipeline(clean_sent, voice=ACTIVE_VOICE, speed=VOICE_SPEED)
+        for _, _, audio in generator:
+            if interrupt_requested:
+                break
+            if isinstance(audio, torch.Tensor):
+                audio_arr = audio.detach().cpu().numpy()
+            else:
+                audio_arr = np.array(audio, dtype=np.float32)
+            playback_queue.put(audio_arr)
+    except Exception as e:
+        print(f"[SYNTH ERROR]: {e}")
+
 def tts_synthesizer_worker():
     global interrupt_requested
     while True:
@@ -318,15 +447,7 @@ def tts_synthesizer_worker():
             break
 
         if not interrupt_requested and sentence.strip():
-            try:
-                clean_sent = clean_text_for_tts(sentence)
-                generator = tts_pipeline(clean_sent, voice=ACTIVE_VOICE, speed=VOICE_SPEED)
-                for _, _, audio in generator:
-                    if interrupt_requested:
-                        break
-                    player.enqueue(audio)
-            except Exception as e:
-                print(f"[SYNTH ERROR]: {e}")
+            synthesize_and_queue(sentence)
 
         tts_text_queue.task_done()
 
@@ -345,7 +466,7 @@ threading.Thread(target=tts_synthesizer_worker, daemon=True).start()
 threading.Thread(target=console_input_worker, daemon=True).start()
 
 def clear_all_queues():
-    player.clear()
+    clear_playback_queue()
     while not tts_text_queue.empty():
         try:
             tts_text_queue.get_nowait()
@@ -378,12 +499,12 @@ def speak_direct(text: str):
         for _, _, audio in generator:
             if interrupt_requested:
                 break
-            player.enqueue(audio)
-        while player.busy and not interrupt_requested:
+            playback_queue.put((audio, 24000))
+        while (not playback_queue.empty() or is_audio_playing) and not interrupt_requested:
             time.sleep(0.02)
     finally:
         if interrupt_requested:
-            player.clear()
+            clear_playback_queue()
         is_agent_speaking = False
         time.sleep(0.1)
         while not audio_queue.empty():
@@ -624,7 +745,7 @@ def stream_brain_to_voice(user_text: str):
 
     collected_tokens = []
     buffer = ""
-    sentence_end_pattern = re.compile(r'([.?!]+(?:\s+|$))')
+    clause_end_pattern = re.compile(r'((?<!\d)[.?!,](?!\d)|\n+)')
 
     try:
         res = requests.post(
@@ -634,6 +755,7 @@ def stream_brain_to_voice(user_text: str):
                 "system": system_prompt + f"\n- Speaking with {primary_name} ({primary_role}). Respond in natural conversational English. Max 2 concise sentences.",
                 "prompt": full_prompt,
                 "stream": True,
+                "keep_alive": -1,
                 "options": {
                     "temperature": 0.5,
                     "num_predict": 120,
@@ -641,13 +763,12 @@ def stream_brain_to_voice(user_text: str):
                 }
             },
             stream=True,
-            timeout=8.0
+            timeout=(5.0, 35.0)
         )
 
         for line in res.iter_lines():
             if interrupt_requested:
                 break
-
 
             if line:
                 chunk = json.loads(line.decode("utf-8"))
@@ -655,28 +776,36 @@ def stream_brain_to_voice(user_text: str):
                 buffer += token
                 collected_tokens.append(token)
 
-                parts = sentence_end_pattern.split(buffer)
-                if len(parts) > 1:
-                    raw_cand = (parts[0] + parts[1]).strip()
-                    full_sentence = re.sub(r'[*#_\"\[\]\n]', ' ', raw_cand).strip()
-                    if full_sentence and len(full_sentence.split()) >= 2:
-                        print(f"\n[AGENT STREAMING]: \"{full_sentence}\"")
-                        detect_and_broadcast_hardware(full_sentence)
-                        dashboard_server.broadcast_stream_chunk("JARVIS", full_sentence)
-                        tts_text_queue.put(full_sentence)
-                    buffer = "".join(parts[2:])
+                # Pipelined clause/sentence splitting on boundary (. ! ? or ,) with at least 3 words
+                while True:
+                    found_split = False
+                    for m in clause_end_pattern.finditer(buffer):
+                        pos = m.end()
+                        cand = buffer[:pos].strip()
+                        cand_clean = re.sub(r'[*#_\"\[\]\n]', ' ', cand).strip()
+                        if cand_clean and len(cand_clean.split()) >= 3:
+                            print(f"\n[AGENT STREAMING]: \"{cand_clean}\"")
+                            detect_and_broadcast_hardware(cand_clean)
+                            dashboard_server.broadcast_stream_chunk("JARVIS", cand_clean)
+                            synthesize_and_queue(cand_clean)
+                            buffer = buffer[pos:].lstrip()
+                            found_split = True
+                            break
+                    if not found_split:
+                        break
 
+        # Flush any remaining trailing text in the buffer to Kokoro
         if buffer.strip() and not interrupt_requested:
             remaining = re.sub(r'[*#_\"\[\]\n]', ' ', buffer).strip()
             if remaining:
                 print(f"\n[AGENT STREAMING]: \"{remaining}\"")
                 detect_and_broadcast_hardware(remaining)
                 dashboard_server.broadcast_stream_chunk("JARVIS", remaining)
-                tts_text_queue.put(remaining)
+                synthesize_and_queue(remaining)
 
-        # Wait for TTS queue and persistent player to complete playback
-        while (not tts_text_queue.empty() or player.busy) and not interrupt_requested:
-            time.sleep(0.03)
+        # Wait for decoupled audio player worker to finish playing all queued chunks
+        while (not playback_queue.empty() or is_audio_playing) and not interrupt_requested:
+            time.sleep(0.02)
 
         full_text = "".join(collected_tokens).strip()
         if full_text and not interrupt_requested:
@@ -690,7 +819,7 @@ def stream_brain_to_voice(user_text: str):
         speak_direct("I'm right here with you! Feel free to ask me anything about the boards on the table.")
     finally:
         if interrupt_requested:
-            player.clear()
+            clear_all_queues()
         is_agent_speaking = False
         dashboard_server.set_state("ACTIVE")
         time.sleep(0.15)
@@ -703,8 +832,21 @@ def stream_brain_to_voice(user_text: str):
 def main():
     global is_agent_speaking, interrupt_requested, state, last_interaction_time
 
-    print("[4/4] System Online.")
-    dashboard_server.start_dashboard_server(port=8088)
+    try:
+        try:
+            import subprocess
+            out = subprocess.check_output("netstat -ano | findstr :8088", shell=True).decode(errors="ignore")
+            for line in out.strip().splitlines():
+                parts = line.split()
+                if len(parts) >= 5 and ":8088" in parts[1]:
+                    pid = parts[-1]
+                    if pid.isdigit() and int(pid) != 0 and int(pid) != os.getpid():
+                        subprocess.run(f"taskkill /F /PID {pid}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        dashboard_server.start_dashboard_server(port=8088)
+    except Exception as e:
+        print(f"[DASHBOARD SERVER NOTICE] Port 8088 managed externally: {e}")
     dashboard_server.set_state("SLEEPING")
     start_presence_bridge(port=8766)
 
@@ -714,6 +856,16 @@ def main():
     print("  • Speech-to-Text: Faster-Whisper small.en (CUDA FP16)")
     print("  • Vision Presence Gating: YuNet + SFace (Port 8080 <-> 8766)")
     print("  • AeroFinger Pointing Bridge: WebSocket (Port 8765)")
+    mic_idx = get_realtek_mic_index()
+    if mic_idx is not None:
+        try:
+            mic_info = sd.query_devices(mic_idx)
+            mic_name = mic_info.get("name", f"Device #{mic_idx}")
+            print(f"  • Audio Capture Device: [{mic_idx}] {mic_name}")
+        except Exception:
+            print(f"  • Audio Capture Device: [{mic_idx}]")
+    else:
+        print("  • Audio Capture Device: System Default")
     print("  • Background Noise Rejection: Vision Gate + RMS Energy Floor + Strict VAD")
     print("  • Hallucination Suppression: Repetition penalty + No-speech gating")
     print("  • Wake Word: Silero VAD + Faster-Whisper ('Hey Repos' / face arrival / typed text)")
@@ -738,10 +890,29 @@ def main():
     MIN_AUDIO_RMS = 0.005
     ambient_noise_rms = 0.004
 
+    capture_device = get_realtek_mic_index()
+    if capture_device is not None:
+        try:
+            device_info = sd.query_devices(capture_device)
+            device_name = device_info.get("name", f"Device #{capture_device}")
+            print(f"[AUDIO CAPTURE] Confirmed active device: [{capture_device}] {device_name}")
+        except Exception:
+            print(f"[AUDIO CAPTURE] Confirmed active device index: [{capture_device}]")
+    else:
+        print("[AUDIO CAPTURE] Using default system audio input")
+
     print("[STATUS: SLEEPING] Waiting for recognized user arrival, speech, or typed text...\n")
 
-    with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-                        blocksize=CHUNK_SIZE, callback=audio_callback):
+    try:
+        audio_stream = sd.InputStream(device=capture_device, samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                                      blocksize=CHUNK_SIZE, callback=audio_callback)
+    except Exception as e:
+        print(f"[AUDIO CAPTURE WARNING] Could not initialize device [{capture_device}]: {e}. Falling back to default system input.")
+        capture_device = None
+        audio_stream = sd.InputStream(device=None, samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                                      blocksize=CHUNK_SIZE, callback=audio_callback)
+
+    with audio_stream:
         while True:
             current_time = time.time()
 
@@ -787,10 +958,11 @@ def main():
                 with pointed_board_lock:
                     pointed_board = current_pointed_board
 
-                if pointed_board is not None:
+                if pointed_board:
                     prompt_with_context = (
                         f"{typed_msg}\n"
-                        f"[Physical Table Context: The visitor is actively pointing at the {pointed_board}.]"
+                        f"[Active Table Context: The user previously selected/pointed to the {pointed_board}. "
+                        f"Unless they explicitly ask about a different board, ground your answer in this board.]"
                     )
                 else:
                     prompt_with_context = typed_msg
@@ -867,13 +1039,12 @@ def main():
                                     initial_prompt="Hey Repos. Repos standby. Repos stop.", # Phonetic acoustic bias
                                     condition_on_previous_text=False
                                 )
-                                segment_list = list(segments)
-                                wake_text = " ".join([s.text for s in segment_list]).strip()
-                                wake_clean = re.sub(r'[^a-zA-Z0-9\s]', '', wake_text.lower()).strip()
-                                wake_phrases = ["hey repos", "repos", "hey raypos", "hey reepos", "wake up repos"]
+                                raw_text = " ".join([s.text for s in segments]).strip()
+                                triggered = check_hey_repos_wake(raw_text)
+                                print(f"[WAKE AUDIT]: raw='{raw_text}' -> triggered={triggered}")
 
-                                if any(phrase in wake_clean for phrase in wake_phrases):
-                                    print(f"\n[WAKE WORD TRIGGERED via Whisper! ('{wake_text}')]")
+                                if triggered:
+                                    print(f"\n[WAKE WORD TRIGGERED via Whisper! ('{raw_text}')]")
                                     audio_feedback.play_wake_chime()
                                     dashboard_server.set_state("ACTIVE")
 
@@ -1084,10 +1255,11 @@ def main():
                         with pointed_board_lock:
                             pointed_board = current_pointed_board
 
-                        if pointed_board is not None:
+                        if pointed_board:
                             prompt_with_context = (
                                 f"{user_text}\n"
-                                f"[Physical Table Context: The visitor is actively pointing at the {pointed_board}.]"
+                                f"[Active Table Context: The user previously selected/pointed to the {pointed_board}. "
+                                f"Unless they explicitly ask about a different board, ground your answer in this board.]"
                             )
                         else:
                             prompt_with_context = user_text

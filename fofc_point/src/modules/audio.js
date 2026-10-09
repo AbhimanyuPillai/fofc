@@ -5,7 +5,7 @@
 export class EdgeAudioSynth {
   constructor() {
     this.ctx = null;
-    this.enabled = true;
+    this.enabled = false; // Strictly disabled per silent policy - audio routes exclusively through Jarvis
     this.lastTriggerTime = 0;
   }
 

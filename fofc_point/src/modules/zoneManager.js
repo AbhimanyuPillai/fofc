@@ -737,7 +737,7 @@ export class ZoneManager {
         this.hoveredZoneId = closestZone.id;
         this.hoverStartTime = timestamp;
         this.triggeredZoneId = null;
-        audioSynth.playPinchSound(520);
+        // Audio chime disabled - voice & earcons route exclusively through Jarvis
       }
 
       const elapsed = timestamp - this.hoverStartTime;
@@ -745,7 +745,7 @@ export class ZoneManager {
 
       if (progress >= 1.0 && this.triggeredZoneId !== closestZone.id) {
         this.triggeredZoneId = closestZone.id;
-        audioSynth.playNote(880, 0.25, 'triangle', 0.25);
+        // Audio trigger chime disabled - voice & earcons route exclusively through Jarvis
         if (this.onTrigger) this.onTrigger(closestZone);
       }
 
