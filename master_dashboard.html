@@ -43,28 +43,28 @@
       flex-direction: column;
     }
 
-    /* TOP HEADER */
+    /* TOP HEADER: MINIMALIST BRAND ONLY */
     header {
-      height: 52px;
-      min-height: 52px;
-      padding: 0 1.5rem;
+      height: 48px;
+      min-height: 48px;
+      padding: 0 1.25rem;
       border-bottom: 1px solid var(--border-subtle);
       background: var(--bg-root);
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-start;
       z-index: 100;
     }
 
     .brand-section {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
+      gap: 0.7rem;
     }
 
     .brand-icon {
-      width: 28px;
-      height: 28px;
+      width: 26px;
+      height: 26px;
       border-radius: 4px;
       background: var(--bg-control);
       border: 1px solid var(--border-mid);
@@ -74,8 +74,8 @@
     }
 
     .brand-icon svg {
-      width: 15px;
-      height: 15px;
+      width: 14px;
+      height: 14px;
       fill: none;
       stroke: var(--text-main);
       stroke-width: 1.8;
@@ -83,141 +83,19 @@
 
     .brand-title {
       font-family: 'Inter', sans-serif;
-      font-size: 0.95rem;
+      font-size: 0.92rem;
       font-weight: 600;
-      letter-spacing: 0.12em;
+      letter-spacing: 0.14em;
       color: var(--text-main);
       text-transform: uppercase;
     }
 
-    /* Status Badges */
-    .header-center {
-      display: flex;
-      align-items: center;
-      gap: 1.25rem;
-    }
-
-    .state-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.3rem 0.85rem;
-      border-radius: 4px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.75rem;
-      font-weight: 500;
-      letter-spacing: 0.06em;
-      border: 1px solid var(--border-mid);
-      background: var(--bg-card);
-      color: var(--text-muted);
-      transition: border-color 0.2s ease, color 0.2s ease;
-    }
-
-    .state-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--text-dim);
-      transition: background 0.2s ease;
-    }
-
-    .state-badge.state-SLEEPING {
-      border-color: var(--border-subtle);
-      color: var(--text-muted);
-    }
-
-    .state-badge.state-SLEEPING .state-dot {
-      background: var(--text-dim);
-    }
-
-    .state-badge.state-ACTIVE,
-    .state-badge.state-LISTENING {
-      border-color: var(--border-active);
-      color: var(--text-main);
-    }
-
-    .state-badge.state-ACTIVE .state-dot,
-    .state-badge.state-LISTENING .state-dot {
-      background: var(--text-main);
-    }
-
-    .state-badge.state-THINKING {
-      border-color: var(--border-active);
-      color: var(--text-main);
-    }
-
-    .state-badge.state-THINKING .state-dot {
-      background: var(--text-secondary);
-    }
-
-    .state-badge.state-SPEAKING {
-      border-color: #444444;
-      color: #ffffff;
-    }
-
-    .state-badge.state-SPEAKING .state-dot {
-      background: #ffffff;
-    }
-
-    .network-pills {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .net-pill {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.7rem;
-      padding: 3px 8px;
-      border-radius: 4px;
-      background: var(--bg-card);
-      border: 1px solid var(--border-subtle);
-      color: var(--text-muted);
-      display: flex;
-      align-items: center;
-      gap: 5px;
-    }
-
-    .net-pill .indicator {
-      width: 5px;
-      height: 5px;
-      border-radius: 50%;
-      background: var(--text-secondary);
-    }
-
-    .header-actions {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .btn-tool {
-      background: var(--bg-card);
-      border: 1px solid var(--border-subtle);
-      color: var(--text-muted);
-      padding: 4px 9px;
-      border-radius: 4px;
-      font-size: 0.75rem;
-      font-family: 'JetBrains Mono', monospace;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
-    }
-
-    .btn-tool:hover {
-      background: #111111;
-      color: var(--text-main);
-      border-color: var(--border-mid);
-    }
-
-    /* MAIN CONTAINER - 3 PANE LAYOUT */
+    /* MAIN CONTAINER */
     main {
       flex: 1;
       display: flex;
       flex-direction: column;
-      height: calc(100vh - 52px);
+      height: calc(100vh - 48px);
       padding: 0.85rem 1.25rem 0.85rem 1.25rem;
       gap: 0.85rem;
       overflow: hidden;
@@ -314,16 +192,6 @@
       color: #e5e5e5;
     }
 
-    .pane-badge {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.65rem;
-      padding: 2px 6px;
-      border-radius: 4px;
-      background: var(--bg-control);
-      border: 1px solid var(--border-subtle);
-      color: var(--text-muted);
-    }
-
     .iframe-container {
       flex: 1;
       width: 100%;
@@ -342,7 +210,7 @@
       overflow: hidden;
     }
 
-    /* BOTTOM PANE: HARDWARE & TERMINAL */
+    /* BOTTOM PANE: HARDWARE TARGET & TERMINAL */
     .bottom-pane {
       flex: 1;
       background: var(--bg-panel);
@@ -353,119 +221,52 @@
       overflow: hidden;
     }
 
-    /* HARDWARE TARGETS ROW */
-    .hardware-bar {
-      padding: 0.5rem 0.85rem;
+    /* SINGLE ACTIVE TARGET BAR */
+    .active-target-bar {
+      padding: 0.45rem 0.85rem;
       background: var(--bg-panel);
       border-bottom: 1px solid var(--border-subtle);
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
+      gap: 0.5rem;
+      animation: fadeIn 0.15s ease-out;
     }
 
-    .hardware-bar-title {
-      font-family: 'Inter', sans-serif;
-      font-size: 0.74rem;
-      font-weight: 600;
-      color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      white-space: nowrap;
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
-
-    .hardware-bar-title svg {
-      stroke: var(--text-secondary);
-    }
-
-    .boards-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 0.65rem;
-      flex: 1;
-    }
-
-    .board-indicator {
-      background: var(--bg-card);
-      border: 1px solid var(--border-subtle);
-      border-radius: 4px;
-      padding: 0.45rem 0.75rem;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      transition: border-color 0.2s ease, background 0.2s ease;
-      position: relative;
-    }
-
-    .board-indicator .board-info {
-      display: flex;
-      flex-direction: column;
-      gap: 1px;
-    }
-
-    .board-indicator .board-name {
-      font-family: 'Inter', sans-serif;
-      font-size: 0.78rem;
-      font-weight: 500;
-      color: var(--text-secondary);
-      transition: color 0.2s ease;
-    }
-
-    .board-indicator .board-tag {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.62rem;
-      color: var(--text-dim);
-    }
-
-    .board-badge-wrap {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .latched-badge {
-      display: none;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.62rem;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      padding: 2px 6px;
-      border-radius: 3px;
-      text-transform: uppercase;
-    }
-
-    .board-indicator.active-focus .latched-badge {
+    .active-target-badge {
       display: inline-flex;
       align-items: center;
-      background: #141414;
-      border: 1px solid #2a2a2a;
-      color: var(--text-main);
+      gap: 0.55rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border-mid);
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
     }
 
-    .board-indicator .board-status-dot {
+    .active-target-dot {
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: #2b2b2b;
-      transition: background 0.2s ease;
-    }
-
-    /* Active hardware focus minimal clean border */
-    .board-indicator.active-focus {
-      border: 1px solid var(--border-active);
-      background: #0f0f0f;
-    }
-
-    .board-indicator.active-focus .board-status-dot {
       background: var(--text-main);
     }
 
-    .board-indicator.active-focus .board-name {
+    .active-target-name {
       color: var(--text-main);
       font-weight: 600;
+    }
+
+    .active-target-tag {
+      color: var(--text-muted);
+      font-size: 0.65rem;
+      padding-left: 6px;
+      border-left: 1px solid var(--border-subtle);
+    }
+
+    .active-target-status {
+      color: var(--text-secondary);
+      font-weight: 500;
+      letter-spacing: 0.05em;
     }
 
     /* TERMINAL & DIALOGUE CONSOLE */
@@ -678,10 +479,6 @@
         max-width: 100%;
         height: 260px;
       }
-
-      .boards-grid {
-        grid-template-columns: repeat(2, 1fr);
-      }
     }
   </style>
 </head>
@@ -697,47 +494,6 @@
         </svg>
       </div>
       <div class="brand-title">REPOS</div>
-    </div>
-
-    <div class="header-center">
-      <!-- Live State Badge -->
-      <div id="state-badge" class="state-badge state-SLEEPING">
-        <div class="state-dot"></div>
-        <span id="state-text">STANDBY</span>
-      </div>
-
-      <!-- Network Subsystem Health -->
-      <div class="network-pills">
-        <div class="net-pill" title="REPOS 01 :8088">
-          <span class="indicator"></span>
-          <span>REPOS 01 :8088</span>
-        </div>
-        <div class="net-pill" title="REPOS 02 :5173">
-          <span class="indicator"></span>
-          <span>REPOS 02 :5173</span>
-        </div>
-        <div class="net-pill" title="REPOS :8765">
-          <span class="indicator"></span>
-          <span>REPOS :8765</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="header-actions">
-      <button id="btn-autoscroll" class="btn-tool" title="Toggle Autoscroll">
-        <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
-        </svg>
-        <span>Auto-Scroll: ON</span>
-      </button>
-      <button id="btn-clear-term" class="btn-tool" title="Clear Console Log">
-        <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path
-            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
-          </path>
-        </svg>
-        <span>Clear</span>
-      </button>
     </div>
   </header>
 
@@ -762,7 +518,6 @@
             <select id="mic-select-1" class="media-select" aria-label="REPOS 01 Microphone">
               <option value="">Microphone</option>
             </select>
-            <span class="pane-badge">:8088</span>
           </div>
         </div>
         <div class="iframe-container">
@@ -792,7 +547,6 @@
             <select id="mic-select-2" class="media-select" aria-label="REPOS 02 Microphone">
               <option value="">Microphone</option>
             </select>
-            <span class="pane-badge">:5173</span>
           </div>
         </div>
         <div class="iframe-container">
@@ -802,74 +556,15 @@
       </div>
     </div>
 
-    <!-- BOTTOM PANE (FULL WIDTH): REPOS HARDWARE & DIALOGUE CONSOLE -->
+    <!-- BOTTOM PANE (FULL WIDTH): ACTIVE TARGET & DIALOGUE CONSOLE -->
     <div class="bottom-pane">
-      <!-- Hardware Focus Row -->
-      <div class="hardware-bar">
-        <div class="hardware-bar-title">
-          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-            <rect x="4" y="4" width="16" height="16" rx="2"></rect>
-            <rect x="9" y="9" width="6" height="6"></rect>
-            <line x1="9" y1="1" x2="9" y2="4"></line>
-            <line x1="15" y1="1" x2="15" y2="4"></line>
-            <line x1="9" y1="20" x2="9" y2="23"></line>
-            <line x1="15" y1="20" x2="15" y2="23"></line>
-            <line x1="20" y1="9" x2="23" y2="9"></line>
-            <line x1="20" y1="14" x2="23" y2="14"></line>
-            <line x1="1" y1="9" x2="4" y2="9"></line>
-            <line x1="1" y1="14" x2="4" y2="14"></line>
-          </svg>
-          REPOS TARGETS
-        </div>
-
-        <div class="boards-grid">
-          <!-- ESP32-S3 -->
-          <div class="board-indicator" data-board="esp32" id="board-esp32">
-            <div class="board-info">
-              <span class="board-name">ESP32-S3 DevKit</span>
-              <span class="board-tag">Dual-Core Xtensa LX7</span>
-            </div>
-            <div class="board-badge-wrap">
-              <span class="latched-badge">LATCHED</span>
-              <div class="board-status-dot"></div>
-            </div>
-          </div>
-
-          <!-- NVIDIA Jetson -->
-          <div class="board-indicator" data-board="jetson" id="board-jetson">
-            <div class="board-info">
-              <span class="board-name">NVIDIA Jetson Orin Nano</span>
-              <span class="board-tag">40 TOPS Ampere GPU</span>
-            </div>
-            <div class="board-badge-wrap">
-              <span class="latched-badge">LATCHED</span>
-              <div class="board-status-dot"></div>
-            </div>
-          </div>
-
-          <!-- STM32 Nucleo -->
-          <div class="board-indicator" data-board="stm32" id="board-stm32">
-            <div class="board-info">
-              <span class="board-name">STM32 Nucleo-F446RE</span>
-              <span class="board-tag">ARM Cortex-M4 @ 180MHz</span>
-            </div>
-            <div class="board-badge-wrap">
-              <span class="latched-badge">LATCHED</span>
-              <div class="board-status-dot"></div>
-            </div>
-          </div>
-
-          <!-- Arduino Uno Rev4 -->
-          <div class="board-indicator" data-board="arduino" id="board-arduino">
-            <div class="board-info">
-              <span class="board-name">Arduino Uno Rev4</span>
-              <span class="board-tag">Renesas RA4M1 32-bit</span>
-            </div>
-            <div class="board-badge-wrap">
-              <span class="latched-badge">LATCHED</span>
-              <div class="board-status-dot"></div>
-            </div>
-          </div>
+      <!-- Minimal Single Active Target Display -->
+      <div id="active-target-bar" class="active-target-bar" style="display: none;">
+        <div class="active-target-badge">
+          <span class="active-target-dot"></span>
+          <span id="active-target-name" class="active-target-name"></span>
+          <span id="active-target-tag" class="active-target-tag"></span>
+          <span class="active-target-status">[LATCHED]</span>
         </div>
       </div>
 
@@ -888,23 +583,12 @@
   <!-- DIALOGUE STREAM, MEDIA SELECTORS & IPC CLIENT SCRIPT -->
   <script>
     const termBody = document.getElementById('terminal-body');
-    const stateBadge = document.getElementById('state-badge');
-    const stateText = document.getElementById('state-text');
-    const btnAutoScroll = document.getElementById('btn-autoscroll');
-    const btnClearTerm = document.getElementById('btn-clear-term');
+    const activeTargetBar = document.getElementById('active-target-bar');
+    const activeTargetName = document.getElementById('active-target-name');
+    const activeTargetTag = document.getElementById('active-target-tag');
 
-    let autoScrollEnabled = true;
-
-    btnAutoScroll.addEventListener('click', () => {
-      autoScrollEnabled = !autoScrollEnabled;
-      btnAutoScroll.querySelector('span').innerText = `Auto-Scroll: ${autoScrollEnabled ? 'ON' : 'OFF'}`;
-      btnAutoScroll.style.color = autoScrollEnabled ? '#e5e5e5' : '#666666';
-    });
-
-    btnClearTerm.addEventListener('click', () => {
-      termBody.innerHTML = '';
-      appendDialogueMessage('SYSTEM', '[REPOS] Console buffer cleared.');
-    });
+    // Auto-scroll is permanently active in the background
+    const autoScrollEnabled = true;
 
     function getFormattedTime() {
       const d = new Date();
@@ -917,6 +601,7 @@
     }
 
     function cleanScroll() {
+      if (!termBody) return;
       while (termBody.children.length > 250) {
         termBody.removeChild(termBody.firstChild);
       }
@@ -925,14 +610,17 @@
       }
     }
 
-    // STATE BADGE UPDATER
-    function updateStateBadge(newState) {
-      const s = (newState || 'SLEEPING').toUpperCase();
-      stateBadge.className = `state-badge state-${s}`;
-      stateText.innerText = s;
-    }
+    // HARDWARE TARGET METADATA
+    const BOARD_SPECS = {
+      esp32: { name: 'ESP32-S3 DevKit', tag: 'Dual-Core Xtensa LX7' },
+      jetson: { name: 'NVIDIA Jetson Orin Nano', tag: '40 TOPS Ampere GPU' },
+      orin: { name: 'NVIDIA Jetson Orin Nano', tag: '40 TOPS Ampere GPU' },
+      stm32: { name: 'STM32 Nucleo-F446RE', tag: 'ARM Cortex-M4 @ 180MHz' },
+      nucleo: { name: 'STM32 Nucleo-F446RE', tag: 'ARM Cortex-M4 @ 180MHz' },
+      arduino: { name: 'Arduino Uno Rev4', tag: 'Renesas RA4M1 32-bit' },
+      uno: { name: 'Arduino Uno Rev4', tag: 'Renesas RA4M1 32-bit' }
+    };
 
-    // STICKY HARDWARE FOCUS HIGHLIGHTER (STATE LATCHING)
     let currentLatchedBoardKey = null;
 
     function updateHardwareFocus(boardKey) {
@@ -941,17 +629,21 @@
       }
 
       const key = String(boardKey).toLowerCase();
-      let matched = null;
-      if (key.includes('esp32')) matched = document.getElementById('board-esp32');
-      else if (key.includes('jetson') || key.includes('orin')) matched = document.getElementById('board-jetson');
-      else if (key.includes('stm32') || key.includes('nucleo')) matched = document.getElementById('board-stm32');
-      else if (key.includes('arduino') || key.includes('uno')) matched = document.getElementById('board-arduino');
+      let matchedSpec = null;
+      if (key.includes('esp32')) matchedSpec = BOARD_SPECS.esp32;
+      else if (key.includes('jetson') || key.includes('orin')) matchedSpec = BOARD_SPECS.jetson;
+      else if (key.includes('stm32') || key.includes('nucleo')) matchedSpec = BOARD_SPECS.stm32;
+      else if (key.includes('arduino') || key.includes('uno')) matchedSpec = BOARD_SPECS.arduino;
+      else {
+        matchedSpec = { name: boardKey, tag: '' };
+      }
 
-      if (matched) {
+      if (matchedSpec && activeTargetBar && activeTargetName && activeTargetTag) {
         currentLatchedBoardKey = key;
-        const allCards = document.querySelectorAll('.board-indicator');
-        allCards.forEach(c => c.classList.remove('active-focus'));
-        matched.classList.add('active-focus');
+        activeTargetName.textContent = matchedSpec.name;
+        activeTargetTag.textContent = matchedSpec.tag;
+        activeTargetTag.style.display = matchedSpec.tag ? 'inline' : 'none';
+        activeTargetBar.style.display = 'flex';
       }
     }
 
@@ -990,7 +682,7 @@
 
     // FORMATTED DIALOGUE & STATUS EVENT PRINTER
     function appendDialogueMessage(role, text) {
-      if (!text || !text.trim()) return;
+      if (!text || !text.trim() || !termBody) return;
       const rawText = text.trim();
 
       // STRICT NOISE FILTER
@@ -1042,8 +734,6 @@
         else if (rawText.toLowerCase().includes('sleeping') || rawText.toLowerCase().includes('standby')) stateVal = 'SLEEPING';
         else if (rawText.toLowerCase().includes('active')) stateVal = 'ACTIVE';
 
-        updateStateBadge(stateVal);
-
         const pillRow = document.createElement('div');
         pillRow.className = 'status-pill-row';
         const pillClass = stateVal.toLowerCase();
@@ -1060,7 +750,6 @@
 
       // 3. WAKE WORD DETECTED
       if (rawText.includes('[WAKE WORD')) {
-        updateStateBadge('LISTENING');
         const pillRow = document.createElement('div');
         pillRow.className = 'status-pill-row';
         pillRow.innerHTML = `
@@ -1214,9 +903,29 @@
       }
     }
 
+    // ATTEMPT TO INJECT STYLES TO SUPPRESS EMBEDDED IFRAME OVERLAYS IF PERMISSIBLE
+    function setupIframeOverlaySuppression() {
+      const iframeFace = document.getElementById('iframe-face');
+      if (iframeFace) {
+        iframeFace.addEventListener('load', () => {
+          try {
+            const doc = iframeFace.contentDocument || iframeFace.contentWindow.document;
+            if (doc) {
+              const style = doc.createElement('style');
+              style.textContent = '.kiosk-badge, #kioskBadge, .hud-overlay-text, #hudFps { display: none !important; opacity: 0 !important; visibility: hidden !important; }';
+              doc.head.appendChild(style);
+            }
+          } catch (e) {
+            // Handled via cross-origin isolation
+          }
+        });
+      }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
       syncMediaSelectors();
       initDeviceSelectors();
+      setupIframeOverlaySuppression();
     });
 
     // SSE TELEMETRY STREAM CONNECTION
@@ -1235,7 +944,8 @@
           const data = JSON.parse(event.data);
 
           if (data.type === 'state') {
-            appendDialogueMessage('STATE', data.state);
+            // State events recorded as minimal telemetry badge in dialogue stream
+            if (data.state) appendDialogueMessage('STATE', data.state);
           } else if (data.type === 'focus') {
             if (data.board) {
               updateHardwareFocus(data.board);
