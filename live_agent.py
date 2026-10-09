@@ -39,11 +39,8 @@ from kokoro_onnx import Kokoro
 
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
-# ==========================================
-# CONFIGURATION & CONSTANTS
-# ==========================================
-ACTIVE_VOICE = "af_sarah"  # Expressive, natural conversational female voice
-VOICE_SPEED = 1.08         # Pacing optimized for breath pauses and sentence-ending inflections
+ACTIVE_VOICE = "af_sarah"  # Fallback default anchor voice
+VOICE_SPEED = 1.03         # Natural, relaxed conversational pace
 INSTRUCTIONS_FILE = "agent_instructions.md"
 INACTIVITY_TIMEOUT = 180.0
 
@@ -141,18 +138,25 @@ def ensure_ollama_running():
 
     print("[WARNING] Could not confirm Ollama startup within 10s. Continuing anyway...")
 
-def load_system_prompt(path: str) -> str:
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"Missing instruction file '{path}'.")
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read().strip()
+SYSTEM_PROMPT = """You are Repos Jarvis, a smart and casual engineer chatting with visitors at our live booth.
+
+CRITICAL INSTRUCTIONS FOR SPOKEN CONVERSATION:
+1. Write exclusively in SPOKEN English, not written English. Imagine you are speaking directly to a friend standing right in front of you.
+2. NEVER summarize or echo the user's question back to them. If asked "What can you do?", do NOT say "I can help you with...". Start immediately with the direct answer.
+3. Use spoken transitional starters naturally: "Yeah, so...", "Basically,", "On this side,", "Right now,".
+4. Always use contractions: "we've", "there's", "it's", "I'm", "don't".
+5. Keep answers to 1 or 2 concise, complete sentences. Never write lists, bullet points, colons, or markdown symbols.
+6. When mentioning hardware on the table (Jetson Orin Nano, ESP32, STM32, Arduino), talk about what they actually do in casual terms (e.g., "The Jetson handles our on-device vision, and the ESP32 pushes live telemetry")."""
+
+def load_system_prompt(path: str = INSTRUCTIONS_FILE) -> str:
+    return SYSTEM_PROMPT
 
 print("\n" + "=" * 60)
 print(f"[INIT] Booting Noise-Hardened Hardware Agent ({sys.platform})...")
 print("=" * 60)
 
 ensure_ollama_running()
-system_prompt = load_system_prompt(INSTRUCTIONS_FILE)
+system_prompt = SYSTEM_PROMPT
 dialog_turns = []
 
 def check_hey_repos_wake(text: str) -> bool:
@@ -231,6 +235,20 @@ if not hasattr(kokoro, "session"):
     kokoro.session = kokoro.sess
 kokoro.session.set_providers(selected_providers)
 print(f"[TTS INIT] Kokoro-ONNX active providers: {kokoro.session.get_providers()}")
+
+def get_natural_voice(kokoro_engine):
+    try:
+        v_sarah = kokoro_engine.get_voice_style("af_sarah")
+        v_nicole = kokoro_engine.get_voice_style("af_nicole")
+        # 75% Sarah (crisp articulation) + 25% Nicole (warmth, natural breath)
+        blended = (v_sarah * 0.75) + (v_nicole * 0.25)
+        return blended
+    except Exception as e:
+        print(f"[TTS WARN] Failed to blend voices ({e}), falling back to af_sarah.")
+        return "af_sarah"
+
+CUSTOM_VOICE = get_natural_voice(kokoro)
+ACTIVE_VOICE = CUSTOM_VOICE
 
 audio_queue = queue.Queue()
 text_input_queue = queue.Queue()
@@ -383,6 +401,9 @@ class PlayerCompat:
     def busy(self) -> bool:
         return is_audio_playing or not playback_queue.empty()
     def enqueue(self, audio: np.ndarray, samplerate: int = 24000):
+        # Pad 250ms of trailing silence to protect final phonemes from buffer clipping
+        pad_samples = int(0.25 * samplerate)
+        audio = np.pad(audio, (0, pad_samples), mode='constant')
         playback_queue.put((audio, samplerate))
     def clear(self):
         clear_playback_queue()
@@ -391,55 +412,37 @@ class PlayerCompat:
 
 player = PlayerCompat()
 
-def clean_text_for_tts(text: str) -> str:
-    if not text:
-        return ""
+PHONETIC_REPLACEMENTS = {
+    r"\bAI\b": "ay eye",
+    r"\bA\.I\.(?!\w)": "ay eye",
+    r"\bA\.I\.\b": "ay eye",
+    r"\bIoT\b": "eye oh tea",
+    r"\bRepos\b": "Ray-pos",
+    r"\bESP32\b": "E S P thirty-two",
+    r"\bSTM32\b": "S T M thirty-two",
+    r"\bJetson\b": "Jet-son",
+}
 
-    replacements = [
-        (r'\bESP32[-_]?S3\b', 'E S P thirty-two S three'),
-        (r'\bESP32\b', 'E S P thirty-two'),
-        (r'\bESP8266\b', 'E S P eighty-two sixty-six'),
-        (r'\bSTM32\b', 'S T M thirty-two'),
-        (r'\bRP2040\b', 'R P twenty forty'),
-        (r'\bGPIO\b', 'G P I O'),
-        (r'\bUART\b', 'U-art'),
-        (r'\bI2C\b', 'I two C'),
-        (r'\bSPI\b', 'S P I'),
-        (r'\bUSB\b', 'U S B'),
-        (r'\bPWM\b', 'P W M'),
-        (r'\bADC\b', 'A D C'),
-        (r'\bDAC\b', 'D A C'),
-        (r'\bCPU\b', 'C P U'),
-        (r'\bGPU\b', 'G P U'),
-        (r'\bVRAM\b', 'V-RAM'),
-        (r'\bAI\b', 'A I'),
-        (r'\bLLM\b', 'L L M'),
-        (r'\bTTS\b', 'T T S'),
-        (r'\bSTT\b', 'S T T'),
-        (r'\bONNX\b', 'O N N X'),
-        (r'\bDNN\b', 'D N N'),
-        (r'\bVAD\b', 'V A D'),
-    ]
+def clean_spoken_text(text: str) -> str:
+    for pattern, replacement in PHONETIC_REPLACEMENTS.items():
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    # Remove all markdown formatting and harsh dashes
+    text = re.sub(r'[*_#`~—–-]', ' ', text)
+    return ' '.join(text.split())
 
-    cleaned = text
-    for pattern, repl in replacements:
-        cleaned = re.sub(pattern, repl, cleaned, flags=re.IGNORECASE)
-
-    # Clean non-vocal markdown while preserving prosodic commas and sentence stops
-    cleaned = re.sub(r'[*#_\"\[\]\(\)<>]', ' ', cleaned)
-    cleaned = re.sub(r'[\!\?\.]{2,}', '.', cleaned)
-    cleaned = re.sub(r',(?=[^\s])', ', ', cleaned)
-    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-    return cleaned
+clean_text_for_tts = clean_spoken_text
 
 def synthesize_and_queue(sentence: str):
     global interrupt_requested
-    clean_sent = clean_text_for_tts(sentence)
+    clean_sent = clean_spoken_text(sentence)
     if not clean_sent or interrupt_requested:
         return
     try:
-        samples, sr = kokoro.create(clean_sent, voice=ACTIVE_VOICE, speed=VOICE_SPEED, lang="en-us")
+        samples, sr = kokoro.create(clean_sent, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
         if not interrupt_requested and samples is not None and len(samples) > 0:
+            # Pad 250ms of trailing silence to protect final phonemes from buffer clipping
+            pad_samples = int(0.25 * sr)
+            samples = np.pad(samples, (0, pad_samples), mode='constant')
             playback_queue.put((samples, sr))
     except Exception as e:
         print(f"[SYNTH ERROR]: {e}")
@@ -494,14 +497,17 @@ def detect_and_broadcast_hardware(text: str):
 def speak_direct(text: str):
     global is_agent_speaking, interrupt_requested
     is_agent_speaking = True
-    clean_text = clean_text_for_tts(text)
+    clean_text = clean_spoken_text(text)
     print(f"\n[AGENT]: \"{clean_text}\"")
     dashboard_server.set_state("SPEAKING")
     detect_and_broadcast_hardware(clean_text)
     dashboard_server.broadcast_transcript("JARVIS", clean_text)
     try:
-        samples, sr = kokoro.create(clean_text, voice=ACTIVE_VOICE, speed=VOICE_SPEED, lang="en-us")
+        samples, sr = kokoro.create(clean_text, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
         if not interrupt_requested and samples is not None and len(samples) > 0:
+            # Pad 250ms of trailing silence to protect final phonemes from buffer clipping
+            pad_samples = int(0.25 * sr)
+            samples = np.pad(samples, (0, pad_samples), mode='constant')
             playback_queue.put((samples, sr))
         while (not playback_queue.empty() or is_audio_playing) and not interrupt_requested:
             time.sleep(0.02)
@@ -750,14 +756,15 @@ def stream_brain_to_voice(user_text: str):
 
     collected_tokens = []
     buffer = ""
-    clause_end_pattern = re.compile(r'((?<!\d)[.?!,](?!\d)|\n+)')
+    # Only split at true sentence ends: . ! ? or two consecutive newlines
+    sentence_end_pattern = re.compile(r'((?<![.?!0-9])[.?!]+(?![.?!0-9])(?:\s+|$)|(?:\r?\n){2,})')
 
     try:
         res = requests.post(
             "http://127.0.0.1:11434/api/generate",
             json={
                 "model": "qwen2.5:3b",
-                "system": system_prompt + f"\n- Speaking with {primary_name} ({primary_role}). Respond in natural conversational English. Max 2 concise sentences.",
+                "system": system_prompt + f"\n- Speaking with {primary_name} ({primary_role}).",
                 "prompt": full_prompt,
                 "stream": True,
                 "keep_alive": -1,
@@ -781,14 +788,14 @@ def stream_brain_to_voice(user_text: str):
                 buffer += token
                 collected_tokens.append(token)
 
-                # Pipelined clause/sentence splitting on boundary (. ! ? or ,) with at least 3 words
+                # Split ONLY at true sentence boundaries (. ! ? or \n\n) - no comma or intra-clause splitting
                 while True:
                     found_split = False
-                    for m in clause_end_pattern.finditer(buffer):
+                    for m in sentence_end_pattern.finditer(buffer):
                         pos = m.end()
                         cand = buffer[:pos].strip()
-                        cand_clean = re.sub(r'[*#_\"\[\]\n]', ' ', cand).strip()
-                        if cand_clean and len(cand_clean.split()) >= 3:
+                        cand_clean = clean_spoken_text(cand)
+                        if cand_clean:
                             print(f"\n[AGENT STREAMING]: \"{cand_clean}\"")
                             detect_and_broadcast_hardware(cand_clean)
                             dashboard_server.broadcast_stream_chunk("JARVIS", cand_clean)
@@ -801,7 +808,7 @@ def stream_brain_to_voice(user_text: str):
 
         # Flush any remaining trailing text in the buffer to Kokoro
         if buffer.strip() and not interrupt_requested:
-            remaining = re.sub(r'[*#_\"\[\]\n]', ' ', buffer).strip()
+            remaining = clean_spoken_text(buffer)
             if remaining:
                 print(f"\n[AGENT STREAMING]: \"{remaining}\"")
                 detect_and_broadcast_hardware(remaining)
@@ -857,7 +864,7 @@ def main():
 
     print("\n" + "=" * 60)
     print("  JARVIS VISION-GATED DUAL-INPUT AGENT")
-    print(f"  • Voice Output: {ACTIVE_VOICE} (Expressive Conversational)")
+    print(f"  • Voice Output: Blended Sarah 75% + Nicole 25% (Speed {VOICE_SPEED})")
     print("  • Speech-to-Text: Faster-Whisper small.en (CUDA FP16)")
     print("  • Vision Presence Gating: YuNet + SFace (Port 8080 <-> 8766)")
     print("  • AeroFinger Pointing Bridge: WebSocket (Port 8765)")
