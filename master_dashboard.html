@@ -192,10 +192,167 @@
       color: #e5e5e5;
     }
 
+    /* SUBTLE COLLAPSIBLE ADMIN CONTROLS */
+    .admin-toggle-btn {
+      background: transparent;
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      padding: 3px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .admin-toggle-btn:hover {
+      color: var(--text-main);
+      border-color: var(--border-mid);
+      background: #0d0d0d;
+    }
+
+    .admin-toggle-btn.active {
+      color: #ffffff;
+      border-color: #444444;
+      background: #141414;
+    }
+
+    .admin-drawer {
+      background: #040404;
+      border-bottom: 1px solid var(--border-subtle);
+      animation: fadeIn 0.15s ease-out;
+      overflow: hidden;
+      z-index: 15;
+    }
+
+    .admin-drawer-inner {
+      padding: 0.65rem 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+
+    .admin-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .admin-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.64rem;
+      color: #777777;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .admin-input, .admin-select {
+      background: #0a0a0a;
+      border: 1px solid #1a1a1a;
+      color: #e5e5e5;
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 0.75rem;
+      padding: 4px 8px;
+      border-radius: 3px;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+
+    .admin-input:focus, .admin-select:focus {
+      border-color: #444444;
+    }
+
+    .input-with-action {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .input-with-action .admin-input {
+      flex: 1;
+    }
+
+    .admin-btn {
+      background: #0d0d0d;
+      border: 1px solid #222222;
+      color: #cccccc;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      padding: 4px 10px;
+      border-radius: 3px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+    }
+
+    .admin-btn:hover {
+      background: #161616;
+      color: #ffffff;
+      border-color: #444444;
+    }
+
+    .admin-btn-primary {
+      background: #141414;
+      border-color: #333333;
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    .admin-btn-primary:hover {
+      background: #1f1f1f;
+      border-color: #555555;
+    }
+
+    .admin-btn-danger {
+      background: #140808;
+      border-color: #3a1515;
+      color: #fb7185;
+    }
+
+    .admin-btn-danger:hover {
+      background: #240c0c;
+      border-color: #5c1e1e;
+    }
+
+    .coords-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.4rem;
+    }
+
+    .coord-item {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      color: #888888;
+    }
+
+    .coord-input {
+      width: 100%;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 3px 6px;
+    }
+
+    .admin-actions-row {
+      flex-direction: row;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.2rem;
+    }
+
+    .admin-feedback {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      color: #888888;
+    }
+
     .iframe-container {
       flex: 1;
       width: 100%;
-      height: calc(100% - 38px);
+      min-height: 0;
       position: relative;
       background: #000000;
       overflow: hidden;
@@ -501,7 +658,7 @@
   <main>
     <!-- TOP ROW (40% / 60% DUAL VIDEO HUDS) -->
     <div class="top-panes-row">
-      <!-- Top-Left Pane (40% width): REPOS 01 -->
+      <!-- Top-Left Pane (40% width): FACECAM -->
       <div class="pane-card top-left-pane">
         <div class="pane-header">
           <div class="pane-title">
@@ -509,24 +666,51 @@
               <circle cx="12" cy="7" r="4"></circle>
               <path d="M5.5 21a8.38 8.38 0 0 1 13 0"></path>
             </svg>
-            REPOS 01
+            FACECAM
           </div>
           <div class="pane-controls">
-            <select id="cam-select-1" class="media-select" aria-label="REPOS 01 Camera">
+            <button id="toggle-admin-face" class="admin-toggle-btn" type="button" title="User registration and phonetic override controls">[ Edit Admin Options ]</button>
+            <select id="cam-select-1" class="media-select" aria-label="FACECAM Camera">
               <option value="">Camera</option>
             </select>
-            <select id="mic-select-1" class="media-select" aria-label="REPOS 01 Microphone">
+            <select id="mic-select-1" class="media-select" aria-label="FACECAM Microphone">
               <option value="">Microphone</option>
             </select>
           </div>
         </div>
+
+        <!-- Collapsible Admin Panel: FACECAM -->
+        <div id="admin-drawer-face" class="admin-drawer" style="display: none;">
+          <div class="admin-drawer-inner">
+            <div class="admin-row">
+              <label class="admin-label">Display Name</label>
+              <input type="text" id="admin-face-name" class="admin-input" placeholder="e.g. Madhur">
+            </div>
+            <div class="admin-row">
+              <label class="admin-label">Pronunciation Key / Phonetic Override</label>
+              <div class="input-with-action">
+                <input type="text" id="admin-face-pronunciation" class="admin-input" placeholder="e.g. Maa-dhoor">
+                <button id="btn-test-pronunciation" class="admin-btn" type="button">[ Test Pronunciation / Play ]</button>
+              </div>
+            </div>
+            <div class="admin-row">
+              <label class="admin-label">Custom Greeting Message</label>
+              <input type="text" id="admin-face-greeting" class="admin-input" placeholder="e.g. Hey Madhur! Good to see you.">
+            </div>
+            <div class="admin-row admin-actions-row">
+              <button id="btn-register-face" class="admin-btn admin-btn-primary" type="button">[ Register / Capture Face ]</button>
+              <span id="admin-face-feedback" class="admin-feedback"></span>
+            </div>
+          </div>
+        </div>
+
         <div class="iframe-container">
           <iframe id="iframe-face" class="feed-iframe" src="http://127.0.0.1:8088/?embedded=true" scrolling="no"
             allow="camera; microphone"></iframe>
         </div>
       </div>
 
-      <!-- Top-Right Pane (60% width): REPOS 02 -->
+      <!-- Top-Right Pane (60% width): HANDCAM -->
       <div class="pane-card top-right-pane">
         <div class="pane-header">
           <div class="pane-title">
@@ -538,17 +722,51 @@
                 d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15">
               </path>
             </svg>
-            REPOS 02
+            HANDCAM
           </div>
           <div class="pane-controls">
-            <select id="cam-select-2" class="media-select" aria-label="REPOS 02 Camera">
+            <button id="toggle-admin-hand" class="admin-toggle-btn" type="button" title="Interactive target bounding box configuration suite">[ Edit Admin Options ]</button>
+            <select id="cam-select-2" class="media-select" aria-label="HANDCAM Camera">
               <option value="">Camera</option>
             </select>
-            <select id="mic-select-2" class="media-select" aria-label="REPOS 02 Microphone">
+            <select id="mic-select-2" class="media-select" aria-label="HANDCAM Microphone">
               <option value="">Microphone</option>
             </select>
           </div>
         </div>
+
+        <!-- Collapsible Admin Panel: HANDCAM -->
+        <div id="admin-drawer-hand" class="admin-drawer" style="display: none;">
+          <div class="admin-drawer-inner">
+            <div class="admin-row">
+              <label class="admin-label">Target Zone</label>
+              <div class="input-with-action">
+                <select id="admin-zone-select" class="admin-select" style="flex: 1;">
+                </select>
+                <button id="btn-add-zone" class="admin-btn" type="button">[ + New Target ]</button>
+              </div>
+            </div>
+            <div class="admin-row">
+              <label class="admin-label">Label / Name Target</label>
+              <input type="text" id="admin-zone-name" class="admin-input" placeholder="e.g. ESP32, Jetson, Nucleo">
+            </div>
+            <div class="admin-row">
+              <label class="admin-label">Bounding Box Coordinates (X1, Y1, X2, Y2 in 0.0 - 1.0)</label>
+              <div class="coords-grid">
+                <div class="coord-item"><span>X1</span><input type="number" id="zone-x1" class="admin-input coord-input" step="0.01" min="0" max="1" placeholder="0.05"></div>
+                <div class="coord-item"><span>Y1</span><input type="number" id="zone-y1" class="admin-input coord-input" step="0.01" min="0" max="1" placeholder="0.15"></div>
+                <div class="coord-item"><span>X2</span><input type="number" id="zone-x2" class="admin-input coord-input" step="0.01" min="0" max="1" placeholder="0.45"></div>
+                <div class="coord-item"><span>Y2</span><input type="number" id="zone-y2" class="admin-input coord-input" step="0.01" min="0" max="1" placeholder="0.50"></div>
+              </div>
+            </div>
+            <div class="admin-row admin-actions-row">
+              <button id="btn-save-zone" class="admin-btn admin-btn-primary" type="button">[ Save & Apply Configuration ]</button>
+              <button id="btn-delete-zone" class="admin-btn admin-btn-danger" type="button">[ Delete Area ]</button>
+              <span id="admin-hand-feedback" class="admin-feedback"></span>
+            </div>
+          </div>
+        </div>
+
         <div class="iframe-container">
           <iframe id="iframe-point" class="feed-iframe" src="http://127.0.0.1:5173/?embedded=true" scrolling="no"
             allow="camera; microphone"></iframe>
@@ -680,10 +898,36 @@
       return res;
     }
 
-    // FORMATTED DIALOGUE & STATUS EVENT PRINTER
-    function appendDialogueMessage(role, text) {
-      if (!text || !text.trim() || !termBody) return;
-      const rawText = text.trim();
+    // LOG DEDUPLICATION & DE-BOUNCING
+    let lastLogSignature = "";
+    let lastLogTime = 0;
+
+    // SANITIZE LEGACY TECHNICAL & SUBSYSTEM LABELS
+    function sanitizeLegacyLabels(text) {
+      if (!text) return '';
+      let res = String(text);
+      res = res.replace(/JARVIS|Jarvis|jarvis/g, 'REPOS');
+      res = res.replace(/AeroFinger|aerofinger|Arrowfinger/gi, 'REPOS 02');
+      res = res.replace(/Face Cam|Facecam/gi, 'REPOS 01');
+      res = res.replace(/Hardware Lab|Native 3-in-1 Shell/gi, 'REPOS');
+      res = res.replace(/YuNet \+ SFace|YuNet|SFace|MediaPipe 3D|MediaPipe/gi, 'REPOS');
+      return res;
+    }
+
+    // FORMATTED DIALOGUE & STATUS EVENT PRINTER WITH CLIENT-SIDE DE-BOUNCE
+    function appendDialogueMessage(role = "REPOS", text = "") {
+      if (!text || !String(text).trim() || !termBody) return;
+      const rawText = String(text).trim();
+      const normalizedRole = (role || 'REPOS').toUpperCase();
+      const now = Date.now();
+      const signature = `${normalizedRole}:${rawText}`;
+
+      // Suppress exact duplicates received within a 1000ms window
+      if (signature === lastLogSignature && (now - lastLogTime) < 1000) {
+        return;
+      }
+      lastLogSignature = signature;
+      lastLogTime = now;
 
       // STRICT NOISE FILTER
       const noisePatterns = [
@@ -700,7 +944,7 @@
         return;
       }
 
-      const upperRole = (role || '').toUpperCase();
+      const upperRole = normalizedRole;
 
       // 1. HARDWARE LATCH / FOCUS EVENT
       if (upperRole === 'FOCUS' || rawText.includes('[HARDWARE]') || rawText.includes('[FOCUS]')) {
@@ -831,47 +1075,204 @@
       cleanScroll();
     }
 
-    // DECOUPLED MEDIA DEVICE ENUMERATION & SYNCHRONIZATION
+    // AGENT WEBSOCKET FOR MICROPHONE CONTROL (:8765)
+    let agentWs = null;
+    const agentWsQueue = [];
+
+    function connectAgentWs() {
+      try {
+        agentWs = new WebSocket('ws://127.0.0.1:8765');
+        agentWs.onopen = () => {
+          while (agentWsQueue.length > 0) {
+            const pkt = agentWsQueue.shift();
+            try { agentWs.send(JSON.stringify(pkt)); } catch (e) {}
+          }
+        };
+        agentWs.onclose = () => {
+          setTimeout(connectAgentWs, 3000);
+        };
+        agentWs.onerror = () => {
+          try { agentWs.close(); } catch (e) {}
+        };
+      } catch (e) {
+        setTimeout(connectAgentWs, 3000);
+      }
+    }
+
+    function sendMicSwitchToAgent(deviceId, label) {
+      const packet = {
+        event: 'set_audio_device',
+        device_id: deviceId,
+        device_name: label
+      };
+      if (agentWs && agentWs.readyState === WebSocket.OPEN) {
+        agentWs.send(JSON.stringify(packet));
+      } else {
+        agentWsQueue.push(packet);
+      }
+    }
+
+    // PERSIST DEVICE CONFIG VIA BACKEND REST API (:8088)
+    async function persistDeviceConfig(type, deviceId, deviceName) {
+      try {
+        await fetch('http://127.0.0.1:8088/api/set_device', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: type,
+            device_id: deviceId,
+            device_name: deviceName || ''
+          })
+        });
+      } catch (e) {
+        // Non-blocking fallback
+      }
+    }
+
+    // POST MESSAGE TO EMBEDDED IFRAMES
+    function notifyIframe(iframe, kind, deviceId) {
+      if (!iframe || !iframe.contentWindow) return;
+      try {
+        iframe.contentWindow.postMessage({
+          type: 'CHANGE_CAMERA',
+          kind: kind,
+          deviceId: deviceId
+        }, '*');
+        iframe.contentWindow.postMessage({
+          type: 'REPOS_MEDIA_SELECT',
+          kind: kind,
+          deviceId: deviceId
+        }, '*');
+      } catch (e) {
+        console.warn("Could not postMessage to iframe:", e);
+      }
+    }
+
+    // DECOUPLED MEDIA DEVICE ENUMERATION & SYNCHRONIZATION WITH BACKEND HARDWARE INDEXING
     async function syncMediaSelectors() {
       try {
         if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
           return;
         }
+
+        // 1. Fetch persistent device configuration and hardware camera indices from backend
+        let backendConfig = {};
+        let cameraConfig = {};
+        try {
+          const cfgRes = await fetch('http://127.0.0.1:8088/api/device_config');
+          if (cfgRes.ok) backendConfig = await cfgRes.json();
+        } catch (e) {}
+        try {
+          const camRes = await fetch('http://127.0.0.1:8088/api/camera_config');
+          if (camRes.ok) cameraConfig = await camRes.json();
+        } catch (e) {}
+
+        const savedFaceCam = localStorage.getItem('facecam_device') || backendConfig.facecam_device || "";
+        const savedHandCam = localStorage.getItem('handcam_device') || backendConfig.handcam_device || "";
+        const savedMic = localStorage.getItem('agent_mic_device') || backendConfig.agent_mic_device || "";
+        const savedMicLabel = localStorage.getItem('agent_mic_label') || backendConfig.agent_mic_name || "";
+
         const devices = await navigator.mediaDevices.enumerateDevices();
-        const camSelectors = [document.getElementById('cam-select-1'), document.getElementById('cam-select-2')];
-        const micSelectors = [document.getElementById('mic-select-1'), document.getElementById('mic-select-2')];
+        const cam1 = document.getElementById('cam-select-1');
+        const cam2 = document.getElementById('cam-select-2');
+        const mic1 = document.getElementById('mic-select-1');
+        const mic2 = document.getElementById('mic-select-2');
+        const iframe1 = document.getElementById('iframe-face');
+        const iframe2 = document.getElementById('iframe-point');
 
-        camSelectors.forEach(select => {
-          if (!select) return;
-          const currentVal = select.value;
-          select.innerHTML = '<option value="">Camera</option>';
-          devices.filter(d => d.kind === 'videoinput').forEach((d, idx) => {
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+        const audioDevices = devices.filter(d => d.kind === 'audioinput');
+
+        // Populate FACECAM (cam-select-1)
+        if (cam1) {
+          cam1.innerHTML = '<option value="">Camera</option>';
+          videoDevices.forEach((d, idx) => {
             const opt = document.createElement('option');
             opt.value = d.deviceId;
-            opt.textContent = d.label || `Camera ${idx + 1}`;
-            select.appendChild(opt);
+            opt.dataset.index = String(idx);
+            opt.textContent = `[${idx}] ` + (d.label || `Camera ${idx + 1}`);
+            cam1.appendChild(opt);
           });
-          if (currentVal) select.value = currentVal;
-        });
+          const targetFaceIdx = cameraConfig.facecam_index !== undefined ? cameraConfig.facecam_index : 0;
+          const matchByIndex = Array.from(cam1.options).find(o => o.dataset.index === String(targetFaceIdx));
+          if (matchByIndex) {
+            cam1.value = matchByIndex.value;
+          } else if (savedFaceCam && Array.from(cam1.options).some(o => o.value === savedFaceCam)) {
+            cam1.value = savedFaceCam;
+          } else if (cam1.options.length > 1) {
+            cam1.selectedIndex = 1;
+          }
+          if (cam1.value) {
+            notifyIframe(iframe1, 'videoinput', cam1.value);
+          }
+        }
 
-        micSelectors.forEach(select => {
-          if (!select) return;
-          const currentVal = select.value;
-          select.innerHTML = '<option value="">Microphone</option>';
-          devices.filter(d => d.kind === 'audioinput').forEach((d, idx) => {
+        // Populate HANDCAM (cam-select-2)
+        if (cam2) {
+          cam2.innerHTML = '<option value="">Camera</option>';
+          videoDevices.forEach((d, idx) => {
             const opt = document.createElement('option');
             opt.value = d.deviceId;
+            opt.dataset.index = String(idx);
+            opt.textContent = `[${idx}] ` + (d.label || `Camera ${idx + 1}`);
+            cam2.appendChild(opt);
+          });
+          const targetHandIdx = cameraConfig.handcam_index !== undefined ? cameraConfig.handcam_index : 1;
+          const matchByIndex = Array.from(cam2.options).find(o => o.dataset.index === String(targetHandIdx));
+          if (matchByIndex) {
+            cam2.value = matchByIndex.value;
+          } else if (savedHandCam && Array.from(cam2.options).some(o => o.value === savedHandCam)) {
+            cam2.value = savedHandCam;
+          } else if (cam2.options.length > 2) {
+            cam2.selectedIndex = 2;
+          } else if (cam2.options.length > 1) {
+            cam2.selectedIndex = 1;
+          }
+          if (cam2.value) {
+            notifyIframe(iframe2, 'videoinput', cam2.value);
+          }
+        }
+
+        // Populate Microphones (mic-select-1 and mic-select-2)
+        [mic1, mic2].forEach(sel => {
+          if (!sel) return;
+          sel.innerHTML = '<option value="">Microphone</option>';
+          audioDevices.forEach((d, idx) => {
+            const opt = document.createElement('option');
+            opt.value = d.deviceId;
+            opt.dataset.index = String(idx);
             opt.textContent = d.label || `Microphone ${idx + 1}`;
-            select.appendChild(opt);
+            sel.appendChild(opt);
           });
-          if (currentVal) select.value = currentVal;
+          let matched = false;
+          if (savedMic && Array.from(sel.options).some(o => o.value === savedMic)) {
+            sel.value = savedMic;
+            matched = true;
+          } else if (savedMicLabel) {
+            const found = Array.from(sel.options).find(o => o.textContent.toLowerCase().includes(savedMicLabel.toLowerCase()));
+            if (found) {
+              sel.value = found.value;
+              matched = true;
+            }
+          }
+          if (!matched && sel.options.length > 1) {
+            sel.selectedIndex = 1;
+          }
         });
+
+        // Ensure active microphone is propagated to live_agent.py
+        const activeMicSel = mic1 || mic2;
+        if (activeMicSel && activeMicSel.value) {
+          const activeMicOption = activeMicSel.selectedOptions[0];
+          const activeMicLabel = activeMicOption ? activeMicOption.text : "";
+          sendMicSwitchToAgent(activeMicSel.value, activeMicLabel);
+        }
       } catch (err) {
         console.error("Device enumeration failed:", err);
       }
     }
 
-    // WIRE CHANGE LISTENERS FOR DEVICE DROPDOWNS
+    // WIRE CHANGE LISTENERS FOR DEVICE DROPDOWNS WITH BACKEND RE-BINDING
     function initDeviceSelectors() {
       const cam1 = document.getElementById('cam-select-1');
       const mic1 = document.getElementById('mic-select-1');
@@ -880,30 +1281,321 @@
       const iframe1 = document.getElementById('iframe-face');
       const iframe2 = document.getElementById('iframe-point');
 
-      function notifyIframe(iframe, kind, deviceId) {
-        if (!iframe) return;
-        try {
-          iframe.contentWindow?.postMessage({
-            type: 'REPOS_MEDIA_SELECT',
-            kind: kind,
-            deviceId: deviceId
-          }, '*');
-        } catch (e) {
-          console.warn("Could not postMessage to iframe:", e);
-        }
+      // FACECAM Select
+      if (cam1) {
+        cam1.addEventListener('change', (e) => {
+          const devId = e.target.value;
+          const opt = e.target.selectedOptions[0];
+          const devIdx = opt && opt.dataset.index !== undefined ? parseInt(opt.dataset.index, 10) : 0;
+          const label = opt ? opt.text : "";
+          localStorage.setItem('facecam_device', devId);
+          localStorage.setItem('facecam_label', label);
+          localStorage.setItem('facecam_index', devIdx);
+          notifyIframe(iframe1, 'videoinput', devId);
+
+          // Backend dynamic re-binding for OpenCV VideoCapture & camera_config.json
+          fetch('http://127.0.0.1:8088/api/set_camera', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stream: 'facecam', index: devIdx })
+          }).catch(() => {});
+
+          persistDeviceConfig('facecam', devId, label);
+        });
       }
 
-      if (cam1) cam1.addEventListener('change', (e) => notifyIframe(iframe1, 'videoinput', e.target.value));
-      if (mic1) mic1.addEventListener('change', (e) => notifyIframe(iframe1, 'audioinput', e.target.value));
-      if (cam2) cam2.addEventListener('change', (e) => notifyIframe(iframe2, 'videoinput', e.target.value));
-      if (mic2) mic2.addEventListener('change', (e) => notifyIframe(iframe2, 'audioinput', e.target.value));
+      // HANDCAM Select
+      if (cam2) {
+        cam2.addEventListener('change', (e) => {
+          const devId = e.target.value;
+          const opt = e.target.selectedOptions[0];
+          const devIdx = opt && opt.dataset.index !== undefined ? parseInt(opt.dataset.index, 10) : 1;
+          const label = opt ? opt.text : "";
+          localStorage.setItem('handcam_device', devId);
+          localStorage.setItem('handcam_label', label);
+          localStorage.setItem('handcam_index', devIdx);
+          notifyIframe(iframe2, 'videoinput', devId);
+
+          // Backend dynamic re-binding for OpenCV VideoCapture & camera_config.json
+          fetch('http://127.0.0.1:8088/api/set_camera', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stream: 'handcam', index: devIdx })
+          }).catch(() => {});
+
+          persistDeviceConfig('handcam', devId, label);
+        });
+      }
+
+      // MICROPHONE Select 1 & 2 (Synchronized pair)
+      function handleMicChange(e) {
+        const devId = e.target.value;
+        const opt = e.target.selectedOptions[0];
+        const label = opt ? opt.text : "";
+        localStorage.setItem('agent_mic_device', devId);
+        localStorage.setItem('agent_mic_label', label);
+
+        // Sync sibling dropdown
+        if (mic1 && mic1.value !== devId) mic1.value = devId;
+        if (mic2 && mic2.value !== devId) mic2.value = devId;
+
+        // Propagate to live_agent.py and persist config
+        sendMicSwitchToAgent(devId, label);
+        persistDeviceConfig('agent_mic', devId, label);
+      }
+
+      if (mic1) mic1.addEventListener('change', handleMicChange);
+      if (mic2) mic2.addEventListener('change', handleMicChange);
+
+      // Re-dispatch camera to iframes once they are fully loaded
+      if (iframe1) {
+        iframe1.addEventListener('load', () => {
+          if (cam1 && cam1.value) notifyIframe(iframe1, 'videoinput', cam1.value);
+        });
+      }
+      if (iframe2) {
+        iframe2.addEventListener('load', () => {
+          if (cam2 && cam2.value) notifyIframe(iframe2, 'videoinput', cam2.value);
+        });
+      }
 
       if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
         navigator.mediaDevices.addEventListener('devicechange', syncMediaSelectors);
       }
     }
 
-    // ATTEMPT TO INJECT STYLES TO SUPPRESS EMBEDDED IFRAME OVERLAYS IF PERMISSIBLE
+    // COLLAPSIBLE ADMIN PANELS (FACECAM & HANDCAM)
+    function initAdminPanels() {
+      const toggleFace = document.getElementById('toggle-admin-face');
+      const drawerFace = document.getElementById('admin-drawer-face');
+      const toggleHand = document.getElementById('toggle-admin-hand');
+      const drawerHand = document.getElementById('admin-drawer-hand');
+
+      const iframeFace = document.getElementById('iframe-face');
+      const iframePoint = document.getElementById('iframe-point');
+
+      // 1. Drawer Toggle Handlers
+      if (toggleFace && drawerFace) {
+        toggleFace.addEventListener('click', () => {
+          const isOpen = drawerFace.style.display !== 'none';
+          drawerFace.style.display = isOpen ? 'none' : 'block';
+          toggleFace.classList.toggle('active', !isOpen);
+        });
+      }
+
+      if (toggleHand && drawerHand) {
+        toggleHand.addEventListener('click', () => {
+          const isOpen = drawerHand.style.display !== 'none';
+          drawerHand.style.display = isOpen ? 'none' : 'block';
+          toggleHand.classList.toggle('active', !isOpen);
+          if (!isOpen) loadZones();
+        });
+      }
+
+      // 2. FACECAM Admin Options (Kokoro TTS Pronunciation Preview & Face Registration)
+      const btnTestPron = document.getElementById('btn-test-pronunciation');
+      const btnRegisterFace = document.getElementById('btn-register-face');
+      const faceNameIn = document.getElementById('admin-face-name');
+      const facePronIn = document.getElementById('admin-face-pronunciation');
+      const faceGreetIn = document.getElementById('admin-face-greeting');
+      const faceFeedback = document.getElementById('admin-face-feedback');
+
+      if (btnTestPron) {
+        btnTestPron.addEventListener('click', async () => {
+          const pronText = (facePronIn?.value || faceNameIn?.value || '').trim();
+          if (!pronText) {
+            if (faceFeedback) faceFeedback.textContent = '[Please enter a Name or Pronunciation Key]';
+            return;
+          }
+          if (faceFeedback) faceFeedback.textContent = '[Synthesizing Kokoro TTS preview...]';
+          try {
+            const res = await fetch('http://127.0.0.1:8088/api/tts_preview', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: pronText })
+            });
+            if (res.ok) {
+              const blob = await res.blob();
+              const audioUrl = URL.createObjectURL(blob);
+              const audio = new Audio(audioUrl);
+              audio.play();
+              if (faceFeedback) faceFeedback.textContent = `[Playing Kokoro preview for "${pronText}"]`;
+            } else {
+              if (faceFeedback) faceFeedback.textContent = `[Preview failed: ${res.statusText}]`;
+            }
+          } catch (err) {
+            if (faceFeedback) faceFeedback.textContent = `[TTS connection error: ${err.message}]`;
+          }
+        });
+      }
+
+      if (btnRegisterFace) {
+        btnRegisterFace.addEventListener('click', () => {
+          const dName = (faceNameIn?.value || '').trim();
+          const pronKey = (facePronIn?.value || '').trim();
+          const customGreet = (faceGreetIn?.value || '').trim();
+
+          if (!dName) {
+            if (faceFeedback) faceFeedback.textContent = '[Display Name is required for registration]';
+            return;
+          }
+          if (faceFeedback) faceFeedback.textContent = '[Capturing 3 camera snapshots & enrolling face...]';
+
+          iframeFace?.contentWindow?.postMessage({
+            type: 'CAPTURE_AND_REGISTER',
+            displayName: dName,
+            pronunciation: pronKey,
+            customGreeting: customGreet
+          }, '*');
+        });
+      }
+
+      // Handle Registration Result Message from embedded FACECAM iframe
+      window.addEventListener('message', (e) => {
+        if (!e.data) return;
+        if (e.data.type === 'REGISTER_RESULT') {
+          if (faceFeedback) {
+            if (e.data.success) {
+              faceFeedback.textContent = `[OK] Enrolled "${e.data.displayName}" (${e.data.samples} embeddings saved)`;
+            } else {
+              faceFeedback.textContent = `[Enrollment failed: ${e.data.error || 'Unknown'}]`;
+            }
+          }
+        } else if (e.data.type === 'ZONES_DATA' && Array.isArray(e.data.zones) && currentZones.length === 0) {
+          currentZones = e.data.zones;
+          renderZoneOptions();
+        }
+      });
+
+      // 3. HANDCAM Admin Options (Interactive Area Bounding Box Configuration)
+      let currentZones = [];
+      const zoneSelect = document.getElementById('admin-zone-select');
+      const zoneNameIn = document.getElementById('admin-zone-name');
+      const zX1 = document.getElementById('zone-x1');
+      const zY1 = document.getElementById('zone-y1');
+      const zX2 = document.getElementById('zone-x2');
+      const zY2 = document.getElementById('zone-y2');
+      const handFeedback = document.getElementById('admin-hand-feedback');
+
+      async function loadZones() {
+        try {
+          const res = await fetch('http://127.0.0.1:8088/api/zones');
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data) && data.length > 0) {
+              currentZones = data;
+              renderZoneOptions();
+              return;
+            }
+          }
+        } catch (e) {}
+        // Fallback: request active zones from HANDCAM iframe
+        iframePoint?.contentWindow?.postMessage({ type: 'GET_ZONES' }, '*');
+      }
+
+      function renderZoneOptions(selectId = null) {
+        if (!zoneSelect) return;
+        zoneSelect.innerHTML = '';
+        currentZones.forEach((z, idx) => {
+          const opt = document.createElement('option');
+          opt.value = z.id || `zone_${idx}`;
+          opt.textContent = z.name || `Target ${idx + 1}`;
+          zoneSelect.appendChild(opt);
+        });
+        if (selectId) zoneSelect.value = selectId;
+        populateActiveZoneFields();
+      }
+
+      function populateActiveZoneFields() {
+        const selectedId = zoneSelect?.value;
+        const zone = currentZones.find(z => (z.id || '') === selectedId) || currentZones[0];
+        if (zone) {
+          if (zoneNameIn) zoneNameIn.value = zone.name || '';
+          const x1 = zone.x !== undefined ? zone.x : (zone.points ? zone.points[0]?.x : 0.05);
+          const y1 = zone.y !== undefined ? zone.y : (zone.points ? zone.points[0]?.y : 0.15);
+          const w = zone.w !== undefined ? zone.w : 0.4;
+          const h = zone.h !== undefined ? zone.h : 0.35;
+          if (zX1) zX1.value = Number(x1).toFixed(2);
+          if (zY1) zY1.value = Number(y1).toFixed(2);
+          if (zX2) zX2.value = Number(x1 + w).toFixed(2);
+          if (zY2) zY2.value = Number(y1 + h).toFixed(2);
+        }
+      }
+
+      if (zoneSelect) zoneSelect.addEventListener('change', populateActiveZoneFields);
+
+      document.getElementById('btn-add-zone')?.addEventListener('click', () => {
+        const newId = 'zone_' + Date.now();
+        const newZ = {
+          id: newId,
+          name: `Target ${currentZones.length + 1}`,
+          x: 0.10,
+          y: 0.15,
+          w: 0.35,
+          h: 0.35,
+          color: '#38bdf8'
+        };
+        currentZones.push(newZ);
+        renderZoneOptions(newId);
+        if (handFeedback) handFeedback.textContent = '[New zone created. Adjust coordinates & click Save]';
+      });
+
+      document.getElementById('btn-save-zone')?.addEventListener('click', async () => {
+        const selectedId = zoneSelect?.value;
+        let zone = currentZones.find(z => (z.id || '') === selectedId);
+        if (!zone && currentZones.length > 0) zone = currentZones[0];
+        if (zone) {
+          zone.name = (zoneNameIn?.value || zone.name).trim();
+          const x1 = parseFloat(zX1?.value || '0.05');
+          const y1 = parseFloat(zY1?.value || '0.15');
+          const x2 = parseFloat(zX2?.value || '0.45');
+          const y2 = parseFloat(zY2?.value || '0.50');
+          zone.x = Math.max(0, Math.min(1, Math.min(x1, x2)));
+          zone.y = Math.max(0, Math.min(1, Math.min(y1, y2)));
+          zone.w = Math.max(0.02, Math.abs(x2 - x1));
+          zone.h = Math.max(0.02, Math.abs(y2 - y1));
+          zone.points = [
+            { x: zone.x, y: zone.y },
+            { x: zone.x + zone.w, y: zone.y },
+            { x: zone.x + zone.w, y: zone.y + zone.h },
+            { x: zone.x, y: zone.y + zone.h }
+          ];
+
+          try {
+            await fetch('http://127.0.0.1:8088/api/set_zones', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ zones: currentZones })
+            });
+            iframePoint?.contentWindow?.postMessage({ type: 'SET_ZONES', zones: currentZones }, '*');
+            if (handFeedback) handFeedback.textContent = `[OK] Applied ${currentZones.length} target zones.`;
+            renderZoneOptions(zone.id);
+          } catch (err) {
+            if (handFeedback) handFeedback.textContent = `[Save error: ${err.message}]`;
+          }
+        }
+      });
+
+      document.getElementById('btn-delete-zone')?.addEventListener('click', async () => {
+        const selectedId = zoneSelect?.value;
+        if (!selectedId) return;
+        currentZones = currentZones.filter(z => (z.id || '') !== selectedId);
+        try {
+          await fetch('http://127.0.0.1:8088/api/set_zones', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ zones: currentZones })
+          });
+          iframePoint?.contentWindow?.postMessage({ type: 'SET_ZONES', zones: currentZones }, '*');
+          renderZoneOptions();
+          if (handFeedback) handFeedback.textContent = '[Zone deleted and applied]';
+        } catch (err) {
+          if (handFeedback) handFeedback.textContent = `[Delete error: ${err.message}]`;
+        }
+      });
+    }
+
+    // ATTEMPT TO INJECT STYLES TO SUPPRESS ANY LEGACY EMBEDDED IFRAME BADGES
     function setupIframeOverlaySuppression() {
       const iframeFace = document.getElementById('iframe-face');
       if (iframeFace) {
@@ -912,7 +1604,7 @@
             const doc = iframeFace.contentDocument || iframeFace.contentWindow.document;
             if (doc) {
               const style = doc.createElement('style');
-              style.textContent = '.kiosk-badge, #kioskBadge, .hud-overlay-text, #hudFps { display: none !important; opacity: 0 !important; visibility: hidden !important; }';
+              style.textContent = '.kiosk-badge, #kioskBadge { display: none !important; opacity: 0 !important; visibility: hidden !important; }';
               doc.head.appendChild(style);
             }
           } catch (e) {
@@ -923,14 +1615,20 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+      connectAgentWs();
       syncMediaSelectors();
       initDeviceSelectors();
+      initAdminPanels();
       setupIframeOverlaySuppression();
     });
 
     // SSE TELEMETRY STREAM CONNECTION
     let evtSource = null;
     function connectTerminalStream() {
+      if (evtSource) {
+        try { evtSource.close(); } catch (e) {}
+        evtSource = null;
+      }
       const streamUrl = 'http://127.0.0.1:8088/terminal_stream';
       evtSource = new EventSource(streamUrl);
 
@@ -944,7 +1642,6 @@
           const data = JSON.parse(event.data);
 
           if (data.type === 'state') {
-            // State events recorded as minimal telemetry badge in dialogue stream
             if (data.state) appendDialogueMessage('STATE', data.state);
           } else if (data.type === 'focus') {
             if (data.board) {
@@ -966,7 +1663,10 @@
       };
 
       evtSource.onerror = (err) => {
-        evtSource.close();
+        if (evtSource) {
+          try { evtSource.close(); } catch (e) {}
+          evtSource = null;
+        }
         setTimeout(connectTerminalStream, 2000);
       };
     }

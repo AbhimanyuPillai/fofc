@@ -6,11 +6,12 @@ import queue
 import threading
 import asyncio
 import collections
-from typing import Optional, List
+from typing import Optional, List, Callable
 import requests
 import uvicorn
 from pydantic import BaseModel
-from fastapi.responses import StreamingResponse
+from fastapi import HTTPException
+from fastapi.responses import StreamingResponse, Response
 
 # Import existing vision app (Camera 1 YuNet + SFace recognition engine & presence tracker)
 try:
@@ -90,6 +91,109 @@ import logging
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
 
+_last_log_signature = ""
+_last_log_time = 0.0
+
+DEVICE_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "device_config.json")
+
+def load_device_config() -> dict:
+    if os.path.exists(DEVICE_CONFIG_PATH):
+        try:
+            with open(DEVICE_CONFIG_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_device_config(data: dict):
+    try:
+        cfg = load_device_config()
+        cfg.update(data)
+        with open(DEVICE_CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+    except Exception as e:
+        print(f"[DEVICE CONFIG ERROR] Could not save config: {e}")
+
+CAMERA_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "camera_config.json")
+ZONES_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "zones_config.json")
+
+def load_camera_config() -> dict:
+    default_cfg = {
+        "facecam_index": 0,
+        "handcam_index": 1,
+        "audio_device_index": None
+    }
+    if os.path.exists(CAMERA_CONFIG_PATH):
+        try:
+            with open(CAMERA_CONFIG_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                default_cfg.update(data)
+                return default_cfg
+        except Exception:
+            pass
+    return default_cfg
+
+def save_camera_config(cfg: dict):
+    try:
+        current = load_camera_config()
+        current.update(cfg)
+        with open(CAMERA_CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(current, f, indent=2)
+    except Exception as e:
+        print(f"[CAMERA CONFIG ERROR] Could not save config: {e}")
+
+def load_zones_config() -> list:
+    if os.path.exists(ZONES_CONFIG_PATH):
+        try:
+            with open(ZONES_CONFIG_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return []
+
+def save_zones_config(zones: list):
+    try:
+        with open(ZONES_CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(zones, f, indent=2)
+    except Exception as e:
+        print(f"[ZONES CONFIG ERROR]: {e}")
+
+_facecam_capture = None
+_handcam_capture = None
+_cam_capture_lock = threading.Lock()
+
+def rebind_backend_camera(stream: str, new_index: int):
+    global _facecam_capture, _handcam_capture
+    import cv2
+    with _cam_capture_lock:
+        try:
+            if stream == "facecam":
+                if _facecam_capture is not None:
+                    try:
+                        _facecam_capture.release()
+                    except Exception:
+                        pass
+                _facecam_capture = cv2.VideoCapture(new_index)
+                save_camera_config({"facecam_index": new_index})
+                print(f"[CAMERA REBIND] FACECAM cv2.VideoCapture bound to index {new_index}")
+            elif stream == "handcam":
+                if _handcam_capture is not None:
+                    try:
+                        _handcam_capture.release()
+                    except Exception:
+                        pass
+                _handcam_capture = cv2.VideoCapture(new_index)
+                save_camera_config({"handcam_index": new_index})
+                print(f"[CAMERA REBIND] HANDCAM cv2.VideoCapture bound to index {new_index}")
+        except Exception as e:
+            print(f"[CAMERA REBIND ERROR] Could not bind {stream} to index {new_index}: {e}")
+
+_tts_preview_func: Optional[Callable[[str], bytes]] = None
+
+def register_tts_preview_func(fn: Callable[[str], bytes]):
+    global _tts_preview_func
+    _tts_preview_func = fn
+
 def log_terminal(line: str):
     """Filters noisy logs and pushes dialogue and status events to SSE."""
     if not line or not line.strip():
@@ -104,6 +208,15 @@ def log_terminal(line: str):
     )
     if any(n in text for n in noise_patterns) and not any(k in text for k in ("[YOU]:", "[AGENT]:", "[JARVIS]:", "[STATUS", "[HARDWARE]", "[FOCUS]", "[WAKE WORD")):
         return
+
+    # Debounce identical messages received within 1 second
+    global _last_log_signature, _last_log_time
+    now = time.time()
+    sig = text.strip()
+    if sig == _last_log_signature and (now - _last_log_time) < 1.0:
+        return
+    _last_log_signature = sig
+    _last_log_time = now
 
     # Normalize to dialogue or status event
     if text.startswith("[YOU]:"):
@@ -167,6 +280,54 @@ async def post_event(payload: dict):
             _terminal_history.append(payload)
         _broadcast_event(payload)
     return {"status": "ok"}
+
+@app.post("/api/set_device")
+async def post_set_device(payload: dict):
+    save_device_config(payload)
+    _broadcast_event({"type": "device_update", "config": load_device_config()})
+    return {"status": "ok", "config": load_device_config()}
+
+@app.get("/api/device_config")
+async def get_device_config():
+    return load_device_config()
+
+@app.post("/api/set_camera")
+async def post_set_camera(payload: dict):
+    stream = payload.get("stream", "facecam").lower()
+    index = int(payload.get("index", 0))
+    rebind_backend_camera(stream, index)
+    return {"status": "ok", "stream": stream, "index": index, "config": load_camera_config()}
+
+@app.get("/api/camera_config")
+async def get_camera_config():
+    return load_camera_config()
+
+@app.post("/api/set_zones")
+async def post_set_zones(payload: dict):
+    zones = payload.get("zones", [])
+    save_zones_config(zones)
+    _broadcast_event({"type": "zones_update", "zones": zones})
+    return {"status": "ok", "zones": zones}
+
+@app.get("/api/zones")
+async def get_zones():
+    return load_zones_config()
+
+@app.post("/api/tts_preview")
+async def post_tts_preview(payload: dict):
+    text = payload.get("text", "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Text parameter required")
+    if _tts_preview_func:
+        try:
+            wav_bytes = _tts_preview_func(text)
+            if not wav_bytes:
+                raise HTTPException(status_code=500, detail="Synthesized audio was empty")
+            return Response(content=wav_bytes, media_type="audio/wav")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"TTS synthesis error: {e}")
+    else:
+        raise HTTPException(status_code=503, detail="TTS engine not initialized yet")
 
 @app.get("/status")
 async def get_dashboard_status():

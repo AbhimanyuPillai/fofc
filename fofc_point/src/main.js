@@ -62,6 +62,7 @@ class AeroFingerApp {
 
     // Telemetry Elements
     this.valFps = document.getElementById('val-fps');
+    this.kioskFps = document.getElementById('kiosk-fps');
     this.lastFpsDomUpdate = 0;
     this.loadingOverlay = document.getElementById('loading-overlay');
     this.loadingDetails = document.getElementById('loading-details');
@@ -145,6 +146,18 @@ class AeroFingerApp {
     // Setup Zone Pointing Trigger Callback
     this.zoneManager.onTrigger = (zone) => this.handleZonePointingTrigger(zone);
 
+    // Sync persistent zones from backend server (:8088)
+    try {
+      const zRes = await fetch('http://127.0.0.1:8088/api/zones');
+      if (zRes.ok) {
+        const fetchedZones = await zRes.json();
+        if (Array.isArray(fetchedZones) && fetchedZones.length > 0) {
+          this.zoneManager.zones = fetchedZones;
+          this.zoneManager.saveToStorage();
+        }
+      }
+    } catch (e) {}
+
     // 1. Initialize MediaPipe Tracker (Offline local WASM & Model)
     try {
       this.loadingDetails.innerText = 'Loading MediaPipe HandLandmarker...';
@@ -156,7 +169,8 @@ class AeroFingerApp {
 
     // 2. Start Live Webcam
     this.loadingDetails.innerText = 'Connecting camera feed...';
-    const camRes = await this.camera.startCamera();
+    const savedHandDev = localStorage.getItem('handcam_device');
+    const camRes = await this.camera.startCamera(savedHandDev || null);
 
     if (!camRes.success) {
       this.loadingDetails.innerHTML = `<span style="color:#ffaa00;">Please grant webcam permission.</span>`;
@@ -243,7 +257,8 @@ class AeroFingerApp {
 
       // Throttle DOM text updates to every 300ms to avoid layout thrashing
       if (timestamp - this.lastFpsDomUpdate > 300) {
-        this.valFps.textContent = detection.fps;
+        if (this.valFps) this.valFps.textContent = detection.fps;
+        if (this.kioskFps) this.kioskFps.textContent = `FPS: ${detection.fps}`;
         this.lastFpsDomUpdate = timestamp;
       }
     } else {
@@ -462,6 +477,31 @@ class AeroFingerApp {
 
     this.btnCancelDraw.addEventListener('click', () => {
       this.exitDrawingMode();
+    });
+
+    // Parent window camera switch and zone management listener
+    window.addEventListener('message', async (e) => {
+      if (!e.data) return;
+      if (e.data.type === 'CHANGE_CAMERA' || (e.data.type === 'REPOS_MEDIA_SELECT' && e.data.kind === 'videoinput')) {
+        const targetId = e.data.deviceId;
+        if (targetId && this.camera) {
+          localStorage.setItem('handcam_device', targetId);
+          await this.camera.startCamera(targetId);
+        }
+      } else if (e.data.type === 'SET_ZONES' || e.data.type === 'UPDATE_ZONES') {
+        if (Array.isArray(e.data.zones) && this.zoneManager) {
+          this.zoneManager.zones = e.data.zones;
+          this.zoneManager.saveToStorage();
+          if (this.canvas) {
+            this.zoneManager.syncScreenPoints(this.canvas.width, this.canvas.height);
+          }
+        }
+      } else if (e.data.type === 'GET_ZONES') {
+        window.parent?.postMessage({
+          type: 'ZONES_DATA',
+          zones: this.zoneManager ? this.zoneManager.zones : []
+        }, '*');
+      }
     });
 
     // 2. Mouse Drag & Click to Define or Adjust Areas

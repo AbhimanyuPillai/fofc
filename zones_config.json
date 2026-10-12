@@ -1,0 +1,29 @@
+[
+  {
+    "id": "zone_jetson",
+    "name": "Jetson",
+    "x": 0.55,
+    "y": 0.15,
+    "w": 0.4,
+    "h": 0.35,
+    "color": "#38bdf8"
+  },
+  {
+    "id": "zone_stm32",
+    "name": "Nucleo",
+    "x": 0.05,
+    "y": 0.55,
+    "w": 0.4,
+    "h": 0.35,
+    "color": "#f59e0b"
+  },
+  {
+    "id": "zone_arduino",
+    "name": "Arduino",
+    "x": 0.55,
+    "y": 0.55,
+    "w": 0.4,
+    "h": 0.35,
+    "color": "#a855f7"
+  }
+]

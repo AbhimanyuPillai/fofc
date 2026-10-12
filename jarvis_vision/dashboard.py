@@ -190,9 +190,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     video, canvas.overlay { position: absolute; width: 100%; height: 100%; object-fit: cover; }
     
     .hud-overlay-text {
-      position: absolute; bottom: 10px; left: 10px;
-      font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;
-      background: rgba(0,0,0,0.65); padding: 4px 8px; border-radius: 4px; color: #38bdf8;
+      position: absolute; bottom: 6px; right: 8px;
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      background: transparent; padding: 2px 6px; color: #555555;
+      pointer-events: none; z-index: 20;
     }
 
     button {
@@ -284,26 +285,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       border-radius: 0 !important;
       aspect-ratio: auto !important;
     }
-    .kiosk-badge {
-      display: none;
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      padding: 5px 12px;
-      border-radius: 9999px;
-      background: rgba(10, 15, 29, 0.88);
-      border: 1px solid rgba(6, 182, 212, 0.5);
-      color: #38bdf8;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.72rem;
-      font-weight: 700;
-      letter-spacing: 0.05em;
-      z-index: 30;
-      backdrop-filter: blur(8px);
-    }
-    body.kiosk-embedded .kiosk-badge {
-      display: inline-flex !important;
-    }
   </style>
 </head>
 <body>
@@ -346,8 +327,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <div class="video-container">
         <video id="webcam" autoplay playsinline muted></video>
         <canvas id="overlayCanvas" class="overlay"></canvas>
-        <div class="hud-overlay-text" id="hudFps">FPS: -- | Engine: YuNet + SFace</div>
-        <div id="kioskBadge" class="kiosk-badge">STANDBY</div>
+        <div class="hud-overlay-text" id="hudFps">FPS: --</div>
       </div>
 
       <!-- Controls below camera -->
@@ -472,26 +452,130 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       }
     }
 
-    // Start WebRTC camera stream
-    async function initCamera() {
+    // Start WebRTC camera stream with persistent deviceId support
+    let currentVideoDeviceId = localStorage.getItem('facecam_device') || null;
+    let inferenceIntervalStarted = false;
+
+    async function initCamera(deviceId = null) {
       try {
+        if (webcam.srcObject) {
+          try {
+            webcam.srcObject.getTracks().forEach(t => t.stop());
+          } catch (e) {}
+          webcam.srcObject = null;
+        }
+        if (deviceId) {
+          currentVideoDeviceId = deviceId;
+          localStorage.setItem('facecam_device', deviceId);
+        }
+        const videoConstraints = {
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        };
+        if (currentVideoDeviceId) {
+          videoConstraints.deviceId = { exact: currentVideoDeviceId };
+        } else {
+          videoConstraints.facingMode = 'user';
+        }
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
+          video: videoConstraints
         });
         webcam.srcObject = stream;
         webcam.onloadedmetadata = () => {
           overlayCanvas.width = webcam.videoWidth;
           overlayCanvas.height = webcam.videoHeight;
-          startInferenceLoop();
+          if (!inferenceIntervalStarted) {
+            startInferenceLoop();
+          }
         };
       } catch (err) {
-        showToast('Camera access failed: ' + err.message, 'error');
+        console.warn('Camera access warning:', err);
+        if (currentVideoDeviceId) {
+          // Fallback to default user camera if exact device constraint failed
+          currentVideoDeviceId = null;
+          try {
+            const fallbackStream = await navigator.mediaDevices.getUserMedia({
+              video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
+            });
+            webcam.srcObject = fallbackStream;
+            webcam.onloadedmetadata = () => {
+              overlayCanvas.width = webcam.videoWidth;
+              overlayCanvas.height = webcam.videoHeight;
+              if (!inferenceIntervalStarted) {
+                startInferenceLoop();
+              }
+            };
+          } catch (fbErr) {
+            showToast('Camera access failed: ' + fbErr.message, 'error');
+          }
+        } else {
+          showToast('Camera access failed: ' + err.message, 'error');
+        }
       }
     }
+
+    // Listen for parent window camera switch and registration commands
+    window.addEventListener('message', async (e) => {
+      if (!e.data) return;
+      if (e.data.type === 'CHANGE_CAMERA' || (e.data.type === 'REPOS_MEDIA_SELECT' && e.data.kind === 'videoinput')) {
+        const targetId = e.data.deviceId;
+        if (targetId && targetId !== currentVideoDeviceId) {
+          await initCamera(targetId);
+        }
+      } else if (e.data.type === 'CAPTURE_AND_REGISTER') {
+        const displayName = (e.data.displayName || 'User').trim();
+        const pronunciation = (e.data.pronunciation || '').trim();
+        const customGreeting = (e.data.customGreeting || '').trim();
+        const userId = displayName.toLowerCase().replace(/[^a-z0-9_-]/g, '_') || 'user_' + Date.now();
+
+        const snaps = [];
+        for (let i = 0; i < 3; i++) {
+          if (webcam.videoWidth) {
+            const c = document.createElement('canvas');
+            c.width = webcam.videoWidth;
+            c.height = webcam.videoHeight;
+            c.getContext('2d').drawImage(webcam, 0, 0);
+            await new Promise(r => c.toBlob(b => { if (b) snaps.push(b); r(); }, 'image/jpeg', 0.95));
+            await new Promise(r => setTimeout(r, 120));
+          }
+        }
+        if (snaps.length === 0) {
+          window.parent?.postMessage({ type: 'REGISTER_RESULT', success: false, error: 'Webcam not ready or no frames captured.' }, '*');
+          return;
+        }
+
+        const fd = new FormData();
+        fd.append('user_id', userId);
+        fd.append('display_name', displayName);
+        fd.append('role', 'visitor');
+        fd.append('pronunciation', pronunciation);
+        fd.append('custom_greeting', customGreeting);
+        snaps.forEach((b, i) => fd.append('files', b, `snap_${i}.jpg`));
+
+        try {
+          const res = await fetch('/api/register', { method: 'POST', body: fd });
+          const data = await res.json();
+          window.parent?.postMessage({
+            type: 'REGISTER_RESULT',
+            success: true,
+            userId: userId,
+            displayName: displayName,
+            pronunciation: pronunciation,
+            customGreeting: customGreeting,
+            samples: data.samples_enrolled
+          }, '*');
+          loadGallery();
+        } catch (err) {
+          window.parent?.postMessage({ type: 'REGISTER_RESULT', success: false, error: err.message }, '*');
+        }
+      }
+    });
 
     // Real-Time Detection and Recognition Loop
     let isProcessing = false;
     function startInferenceLoop() {
+      if (inferenceIntervalStarted) return;
+      inferenceIntervalStarted = true;
       setInterval(async () => {
         if (!isTracking || isProcessing || !webcam.videoWidth) return;
         isProcessing = true;
@@ -512,10 +596,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             const data = await res.json();
             const t1 = performance.now();
             
-            // FPS calculation
+            // Streamlined low-profile FPS display
             const fps = (1000 / (t1 - lastFrameTime)).toFixed(1);
             lastFrameTime = t1;
-            hudFps.textContent = `FPS: ${fps} | Infer: ${(t1 - t0).toFixed(0)}ms | SFace ONNX`;
+            hudFps.textContent = `FPS: ${fps}`;
 
             drawDetections(data.detections || []);
             handlePresenceState(data.presence_event, data.active_user);
@@ -721,6 +805,7 @@ async def list_users():
             "user_id": u["user_id"],
             "display_name": u.get("display_name", u["user_id"]),
             "role": u.get("role", "visitor"),
+            "pronunciation": u.get("pronunciation", ""),
             "custom_greeting": u.get("custom_greeting", ""),
             "registered_at": u.get("registered_at", ""),
             "sample_count": len(sample_paths)
@@ -732,6 +817,7 @@ async def register_user(
     user_id: str = Form(...),
     display_name: str = Form(...),
     role: str = Form("visitor"),
+    pronunciation: str = Form(""),
     custom_greeting: str = Form(""),
     files: List[UploadFile] = File(...)
 ):
@@ -743,6 +829,7 @@ async def register_user(
         user_id=clean_uid,
         display_name=display_name,
         role=role,
+        pronunciation=pronunciation,
         custom_greeting=custom_greeting
     )
 
@@ -763,6 +850,8 @@ async def register_user(
         "status": "success",
         "user_id": clean_uid,
         "display_name": user_record["display_name"],
+        "pronunciation": user_record.get("pronunciation", ""),
+        "custom_greeting": user_record.get("custom_greeting", ""),
         "samples_enrolled": enrolled_samples
     }
 
@@ -804,6 +893,7 @@ async def recognize_frame(frame: UploadFile = File(...)):
                     "user_id": current_id,
                     "display_name": user_record.get("display_name", current_id),
                     "role": user_record.get("role", "visitor"),
+                    "pronunciation": user_record.get("pronunciation", ""),
                     "custom_greeting": user_record.get("custom_greeting", ""),
                     "score": float(best_user["score"]) if best_user else 0.0
                 }
@@ -831,6 +921,7 @@ async def get_presence_state():
                 "user_id": user_record["user_id"],
                 "display_name": user_record.get("display_name", user_record["user_id"]),
                 "role": user_record.get("role", "visitor"),
+                "pronunciation": user_record.get("pronunciation", ""),
                 "custom_greeting": user_record.get("custom_greeting", "")
             }
     return {

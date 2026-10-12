@@ -3,6 +3,8 @@ import sys
 import time
 import queue
 import re
+import io
+import wave
 import json
 import threading
 import subprocess
@@ -13,7 +15,7 @@ import requests
 import numpy as np
 import sounddevice as sd
 import torch
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from faster_whisper import WhisperModel
@@ -250,6 +252,27 @@ def get_natural_voice(kokoro_engine):
 CUSTOM_VOICE = get_natural_voice(kokoro)
 ACTIVE_VOICE = CUSTOM_VOICE
 
+def synthesize_wav_bytes(text: str) -> bytes:
+    """Synthesizes given text with Kokoro TTS and returns in-memory WAV bytes."""
+    try:
+        clean = clean_spoken_text(text) if "clean_spoken_text" in globals() else text
+        if not clean:
+            clean = text
+        samples, sr = kokoro.create(clean, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
+        if samples is None or len(samples) == 0:
+            return b""
+        audio_int16 = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
+        buf = io.BytesIO()
+        with wave.open(buf, 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sr)
+            wf.writeframes(audio_int16.tobytes())
+        return buf.getvalue()
+    except Exception as e:
+        print(f"[TTS PREVIEW ERROR]: {e}")
+        return b""
+
 audio_queue = queue.Queue()
 text_input_queue = queue.Queue()
 tts_text_queue = queue.Queue()
@@ -264,6 +287,93 @@ interrupt_requested = False
 # ==========================================
 current_pointed_board = None
 pointed_board_lock = threading.Lock()
+audio_stream_lock = threading.Lock()
+active_audio_stream = None
+capture_device = None
+
+DEVICE_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "device_config.json")
+
+def load_device_config() -> dict:
+    if os.path.exists(DEVICE_CONFIG_FILE):
+        try:
+            with open(DEVICE_CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_device_config(cfg: dict):
+    try:
+        current = load_device_config()
+        current.update(cfg)
+        with open(DEVICE_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(current, f, indent=2)
+    except Exception as e:
+        print(f"[DEVICE CONFIG ERROR] Could not save config: {e}")
+
+def resolve_mic_device(device_name: str = "", device_id: str = "") -> Optional[int]:
+    try:
+        devices = sd.query_devices()
+        if device_name:
+            clean = device_name.lower().strip()
+            for idx, dev in enumerate(devices):
+                if dev.get("max_input_channels", 0) > 0 and dev.get("name", "").lower().strip() == clean:
+                    return idx
+            for idx, dev in enumerate(devices):
+                if dev.get("max_input_channels", 0) > 0 and clean in dev.get("name", "").lower():
+                    return idx
+            words = [w for w in clean.split() if len(w) > 3 and w not in ("microphone", "default")]
+            if words:
+                for idx, dev in enumerate(devices):
+                    if dev.get("max_input_channels", 0) > 0:
+                        dev_n = dev.get("name", "").lower()
+                        if any(w in dev_n for w in words):
+                            return idx
+    except Exception as e:
+        print(f"[AUDIO DEVICE RESOLVE ERROR]: {e}")
+    return None
+
+def switch_audio_device(device_name: str = "", device_id: str = ""):
+    global capture_device, active_audio_stream
+    target_idx = resolve_mic_device(device_name, device_id)
+    if target_idx is None and not device_name:
+        target_idx = get_realtek_mic_index()
+
+    save_device_config({
+        "agent_mic_name": device_name,
+        "agent_mic_device": device_id,
+        "agent_mic_index": target_idx
+    })
+    dashboard_server.save_camera_config({"audio_device_index": target_idx})
+
+    with audio_stream_lock:
+        try:
+            if active_audio_stream:
+                try:
+                    active_audio_stream.stop()
+                    active_audio_stream.close()
+                except Exception:
+                    pass
+            capture_device = target_idx
+            active_audio_stream = sd.InputStream(
+                device=target_idx,
+                samplerate=SAMPLE_RATE,
+                channels=1,
+                dtype="float32",
+                blocksize=CHUNK_SIZE,
+                callback=audio_callback
+            )
+            active_audio_stream.start()
+            dname = device_name or "System Default"
+            if target_idx is not None:
+                try:
+                    dname = sd.query_devices(target_idx).get("name", dname)
+                except Exception:
+                    pass
+            print(f"[AUDIO CAPTURE] Switched microphone to: [{target_idx}] {dname}")
+            dashboard_server.broadcast_transcript("SYSTEM", f"Switched microphone to: {dname}")
+        except Exception as e:
+            print(f"[AUDIO CAPTURE RESTART WARNING] Failed to switch to [{target_idx}]: {e}")
 
 async def pointing_ws_handler(websocket):
     global current_pointed_board
@@ -281,6 +391,10 @@ async def pointing_ws_handler(websocket):
                         if "dashboard_server" in globals() and hasattr(dashboard_server, "set_hardware_focus"):
                             dashboard_server.set_hardware_focus(board_str)
                     # When board is None (hand pulled back), DO NOT reset; preserve latched state
+                elif data.get("event") == "set_audio_device" or data.get("type") == "SET_AUDIO_DEVICE":
+                    dev_id = data.get("device_id", "")
+                    dev_name = data.get("device_name", "")
+                    switch_audio_device(device_name=dev_name, device_id=dev_id)
             except Exception:
                 pass
     except Exception:
@@ -544,15 +658,25 @@ def is_user_present() -> bool:
     """Returns True only when an enrolled user is actively verified in front of the camera."""
     return bool(currently_tracked_users) or (primary_user is not None)
 
-def on_new_user_arrived(new_user_name: str):
+def on_new_user_arrived(user_info: Union[str, Dict[str, Any]]):
     """Triggers immediate conversational greetings upon visual entry with mid-sentence interruption."""
     global state, last_interaction_time, interrupt_requested, is_agent_speaking, vad_iterator
 
-    print(f"\n[VISION ARRIVAL] First boot greeting for newcomer: {new_user_name}")
+    if isinstance(user_info, dict):
+        display_name = str(user_info.get("display_name") or "there").strip()
+        pronunciation = str(user_info.get("pronunciation") or "").strip()
+        custom_greeting = str(user_info.get("custom_greeting") or "").strip()
+    else:
+        display_name = str(user_info).strip()
+        pronunciation = ""
+        custom_greeting = ""
+
+    spoken_name = pronunciation if pronunciation else display_name
+    print(f"\n[VISION ARRIVAL] First boot greeting for newcomer: {display_name} (Phonetic: {spoken_name})")
 
     # 1. Immediate Interruption Logic (Mid-Sentence)
     if player.busy or is_agent_speaking:
-        print(f"[VISION INTERRUPT] Halting current playback mid-sentence for newcomer: {new_user_name}")
+        print(f"[VISION INTERRUPT] Halting current playback mid-sentence for newcomer: {display_name}")
         interrupt_requested = True
         clear_all_queues()
         player.stop()
@@ -563,15 +687,21 @@ def on_new_user_arrived(new_user_name: str):
         last_interaction_time = time.time()
         dashboard_server.set_state("ACTIVE")
 
-        interjection = f"One moment... Hey {new_user_name}, welcome!"
+        if custom_greeting:
+            interjection = f"One moment... {custom_greeting}"
+        else:
+            interjection = f"One moment... Hey {spoken_name}, welcome!"
         speak_direct(interjection)
     else:
         # 2. Idle / Standby Greeting (Not Speaking)
-        print(f"[VISION GREETING] Speaking first-time arrival greeting for: {new_user_name}")
+        print(f"[VISION GREETING] Speaking first-time arrival greeting for: {display_name}")
         audio_feedback.play_wake_chime()
         time.sleep(0.05)
 
-        greeting = f"Hey {new_user_name}! Good to see you."
+        if custom_greeting:
+            greeting = custom_greeting
+        else:
+            greeting = f"Hey {spoken_name}! Good to see you."
         speak_direct(greeting)
 
     state = "ACTIVE"
@@ -627,7 +757,7 @@ def handle_presence_event(event_type: str, user_info: Optional[Dict[str, Any]]):
                 if not _greeting_active.acquire(timeout=2.0):
                     return
             try:
-                on_new_user_arrived(display_name)
+                on_new_user_arrived(user_info)
             finally:
                 _greeting_active.release()
 
@@ -859,6 +989,7 @@ def main():
         dashboard_server.start_dashboard_server(port=8088)
     except Exception as e:
         print(f"[DASHBOARD SERVER NOTICE] Port 8088 managed externally: {e}")
+    dashboard_server.register_tts_preview_func(synthesize_wav_bytes)
     dashboard_server.set_state("SLEEPING")
     start_presence_bridge(port=8766)
 
@@ -902,7 +1033,21 @@ def main():
     MIN_AUDIO_RMS = 0.005
     ambient_noise_rms = 0.004
 
-    capture_device = get_realtek_mic_index()
+    global capture_device, active_audio_stream
+    saved_cfg = load_device_config()
+    saved_cam_cfg = dashboard_server.load_camera_config()
+    saved_mic_name = saved_cfg.get("agent_mic_name")
+    saved_mic_id = saved_cfg.get("agent_mic_device")
+    saved_mic_idx = saved_cam_cfg.get("audio_device_index")
+    capture_device = None
+    if saved_mic_idx is not None:
+        capture_device = saved_mic_idx
+    elif saved_mic_name or saved_mic_id:
+        capture_device = resolve_mic_device(saved_mic_name or "", saved_mic_id or "")
+
+    if capture_device is None:
+        capture_device = get_realtek_mic_index()
+
     if capture_device is not None:
         try:
             device_info = sd.query_devices(capture_device)
@@ -916,15 +1061,15 @@ def main():
     print("[STATUS: SLEEPING] Waiting for recognized user arrival, speech, or typed text...\n")
 
     try:
-        audio_stream = sd.InputStream(device=capture_device, samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-                                      blocksize=CHUNK_SIZE, callback=audio_callback)
+        active_audio_stream = sd.InputStream(device=capture_device, samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                                             blocksize=CHUNK_SIZE, callback=audio_callback)
     except Exception as e:
         print(f"[AUDIO CAPTURE WARNING] Could not initialize device [{capture_device}]: {e}. Falling back to default system input.")
         capture_device = None
-        audio_stream = sd.InputStream(device=None, samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-                                      blocksize=CHUNK_SIZE, callback=audio_callback)
+        active_audio_stream = sd.InputStream(device=None, samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                                             blocksize=CHUNK_SIZE, callback=audio_callback)
 
-    with audio_stream:
+    with active_audio_stream:
         while True:
             current_time = time.time()
 
