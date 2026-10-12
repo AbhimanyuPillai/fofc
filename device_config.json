@@ -1,8 +1,8 @@
 {
-  "agent_mic_name": "Microphone Array (Intel\u00ae Smart Sound Technology for Digital Microphones)",
-  "agent_mic_device": "31340c43805657662c62ccebce8e1070eaae3e609fd27fd1f272e57029812af7",
-  "agent_mic_index": 5,
-  "type": "facecam",
-  "device_id": "5319148849ecf57434c288e3c4763c76b213c61a5930bdac09cba87ba458a8aa",
-  "device_name": "[0] HP True Vision HD Camera (05c8:0b05)"
+  "agent_mic_name": "Microphone",
+  "agent_mic_device": "",
+  "agent_mic_index": 1,
+  "type": "agent_mic",
+  "device_id": "",
+  "device_name": "Microphone"
 }

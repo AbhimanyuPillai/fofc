@@ -140,25 +140,28 @@ def ensure_ollama_running():
 
     print("[WARNING] Could not confirm Ollama startup within 10s. Continuing anyway...")
 
-SYSTEM_PROMPT = """You are Repos Jarvis, a smart and casual engineer chatting with visitors at our live booth.
-
-CRITICAL INSTRUCTIONS FOR SPOKEN CONVERSATION:
-1. Write exclusively in SPOKEN English, not written English. Imagine you are speaking directly to a friend standing right in front of you.
-2. NEVER summarize or echo the user's question back to them. If asked "What can you do?", do NOT say "I can help you with...". Start immediately with the direct answer.
-3. Use spoken transitional starters naturally: "Yeah, so...", "Basically,", "On this side,", "Right now,".
-4. Always use contractions: "we've", "there's", "it's", "I'm", "don't".
-5. Keep answers to 1 or 2 concise, complete sentences. Never write lists, bullet points, colons, or markdown symbols.
-6. When mentioning hardware on the table (Jetson Orin Nano, ESP32, STM32, Arduino), talk about what they actually do in casual terms (e.g., "The Jetson handles our on-device vision, and the ESP32 pushes live telemetry")."""
-
-def load_system_prompt(path: str = INSTRUCTIONS_FILE) -> str:
-    return SYSTEM_PROMPT
+def load_system_prompt(path: Optional[str] = None) -> str:
+    """Load the agent's system instructions from the project Markdown file."""
+    instructions_path = path or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), INSTRUCTIONS_FILE
+    )
+    try:
+        with open(instructions_path, "r", encoding="utf-8") as instructions_file:
+            prompt = instructions_file.read().strip()
+    except OSError as exc:
+        raise RuntimeError(
+            f"Could not load agent instructions from {instructions_path}: {exc}"
+        ) from exc
+    if not prompt:
+        raise RuntimeError(f"Agent instructions file is empty: {instructions_path}")
+    return prompt
 
 print("\n" + "=" * 60)
 print(f"[INIT] Booting Noise-Hardened Hardware Agent ({sys.platform})...")
 print("=" * 60)
 
+system_prompt = load_system_prompt()
 ensure_ollama_running()
-system_prompt = SYSTEM_PROMPT
 dialog_turns = []
 
 def check_hey_repos_wake(text: str) -> bool:
@@ -255,7 +258,7 @@ ACTIVE_VOICE = CUSTOM_VOICE
 def synthesize_wav_bytes(text: str) -> bytes:
     """Synthesizes given text with Kokoro TTS and returns in-memory WAV bytes."""
     try:
-        clean = clean_spoken_text(text) if "clean_spoken_text" in globals() else text
+        clean = clean_text_for_tts(text) if "clean_text_for_tts" in globals() else text
         if not clean:
             clean = text
         samples, sr = kokoro.create(clean, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
@@ -531,24 +534,28 @@ PHONETIC_REPLACEMENTS = {
     r"\bA\.I\.(?!\w)": "ay eye",
     r"\bA\.I\.\b": "ay eye",
     r"\bIoT\b": "eye oh tea",
-    r"\bRepos\b": "Ray-pos",
+    r"\bNVIDIA\b": "envidia",
+    r"\bRepos\b": "reepoze",
     r"\bESP32\b": "E S P thirty-two",
     r"\bSTM32\b": "S T M thirty-two",
-    r"\bJetson\b": "Jet-son",
 }
+
+def _normalize_speech_text(text: str) -> str:
+    # Remove markdown formatting and harsh dashes.
+    text = re.sub(r'[*_#`~—–-]', ' ', text)
+    return ' '.join(text.split())
 
 def clean_spoken_text(text: str) -> str:
     for pattern, replacement in PHONETIC_REPLACEMENTS.items():
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
-    # Remove all markdown formatting and harsh dashes
-    text = re.sub(r'[*_#`~—–-]', ' ', text)
-    return ' '.join(text.split())
+    return _normalize_speech_text(text)
 
 clean_text_for_tts = clean_spoken_text
+clean_display_text = _normalize_speech_text
 
 def synthesize_and_queue(sentence: str):
     global interrupt_requested
-    clean_sent = clean_spoken_text(sentence)
+    clean_sent = clean_text_for_tts(apply_active_user_pronunciation(sentence))
     if not clean_sent or interrupt_requested:
         return
     try:
@@ -608,16 +615,18 @@ def detect_and_broadcast_hardware(text: str):
     elif "arduino" in t or "uno" in t:
         dashboard_server.set_hardware_focus("arduino")
 
-def speak_direct(text: str):
+def speak_direct(text: str, spoken_text: Optional[str] = None):
     global is_agent_speaking, interrupt_requested
     is_agent_speaking = True
-    clean_text = clean_spoken_text(text)
+    clean_text = clean_display_text(text)
+    speech_source = spoken_text if spoken_text is not None else text
+    clean_speech_text = clean_text_for_tts(apply_active_user_pronunciation(speech_source))
     print(f"\n[AGENT]: \"{clean_text}\"")
     dashboard_server.set_state("SPEAKING")
     detect_and_broadcast_hardware(clean_text)
     dashboard_server.broadcast_transcript("JARVIS", clean_text)
     try:
-        samples, sr = kokoro.create(clean_text, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
+        samples, sr = kokoro.create(clean_speech_text, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
         if not interrupt_requested and samples is not None and len(samples) > 0:
             # Pad 250ms of trailing silence to protect final phonemes from buffer clipping
             pad_samples = int(0.25 * sr)
@@ -658,6 +667,30 @@ def is_user_present() -> bool:
     """Returns True only when an enrolled user is actively verified in front of the camera."""
     return bool(currently_tracked_users) or (primary_user is not None)
 
+
+def apply_saved_name_pronunciation(text: str, display_name: str, pronunciation: str) -> str:
+    """Use the saved phonetic spelling when the display name appears in spoken text."""
+    if not text or not display_name or not pronunciation:
+        return text
+
+    name_pattern = re.compile(
+        rf"(?<!\w){re.escape(display_name)}(?!\w)",
+        flags=re.IGNORECASE,
+    )
+    return name_pattern.sub(lambda _: pronunciation, text)
+
+
+def apply_active_user_pronunciation(text: str) -> str:
+    """Apply the active user's saved pronunciation to audio text across speech paths."""
+    user = primary_user
+    if not isinstance(user, dict):
+        return text
+
+    display_name = str(user.get("display_name") or "").strip()
+    pronunciation = str(user.get("pronunciation") or "").strip()
+    return apply_saved_name_pronunciation(text, display_name, pronunciation)
+
+
 def on_new_user_arrived(user_info: Union[str, Dict[str, Any]]):
     """Triggers immediate conversational greetings upon visual entry with mid-sentence interruption."""
     global state, last_interaction_time, interrupt_requested, is_agent_speaking, vad_iterator
@@ -672,6 +705,9 @@ def on_new_user_arrived(user_info: Union[str, Dict[str, Any]]):
         custom_greeting = ""
 
     spoken_name = pronunciation if pronunciation else display_name
+    spoken_custom_greeting = apply_saved_name_pronunciation(
+        custom_greeting, display_name, pronunciation
+    )
     print(f"\n[VISION ARRIVAL] First boot greeting for newcomer: {display_name} (Phonetic: {spoken_name})")
 
     # 1. Immediate Interruption Logic (Mid-Sentence)
@@ -689,9 +725,11 @@ def on_new_user_arrived(user_info: Union[str, Dict[str, Any]]):
 
         if custom_greeting:
             interjection = f"One moment... {custom_greeting}"
+            spoken_interjection = f"One moment... {spoken_custom_greeting}"
         else:
-            interjection = f"One moment... Hey {spoken_name}, welcome!"
-        speak_direct(interjection)
+            interjection = f"One moment... Hey {display_name}, welcome!"
+            spoken_interjection = f"One moment... Hey {spoken_name}, welcome!"
+        speak_direct(interjection, spoken_text=spoken_interjection)
     else:
         # 2. Idle / Standby Greeting (Not Speaking)
         print(f"[VISION GREETING] Speaking first-time arrival greeting for: {display_name}")
@@ -700,9 +738,11 @@ def on_new_user_arrived(user_info: Union[str, Dict[str, Any]]):
 
         if custom_greeting:
             greeting = custom_greeting
+            spoken_greeting = spoken_custom_greeting
         else:
-            greeting = f"Hey {spoken_name}! Good to see you."
-        speak_direct(greeting)
+            greeting = f"Hey {display_name}! Good to see you."
+            spoken_greeting = f"Hey {spoken_name}! Good to see you."
+        speak_direct(greeting, spoken_text=spoken_greeting)
 
     state = "ACTIVE"
     last_interaction_time = time.time()
@@ -724,7 +764,17 @@ def handle_presence_event(event_type: str, user_info: Optional[Dict[str, Any]]):
     """Thread-safe handler for ARRIVAL and DEPARTURE presence events."""
     global primary_user, visitor_queue, state, last_interaction_time
 
-    if event_type == "ARRIVAL" and user_info:
+    if event_type == "PROFILE_UPDATED" and user_info:
+        updated_id = str(user_info.get("user_id", "")).strip().lower()
+        if primary_user and str(primary_user.get("user_id", "")).strip().lower() == updated_id:
+            primary_user = dict(user_info)
+        visitor_queue = collections.deque(
+            dict(user_info) if str(user.get("user_id", "")).strip().lower() == updated_id else user
+            for user in visitor_queue
+        )
+        print(f"[VISION] Refreshed active profile details for {user_info.get('display_name', updated_id)}.")
+
+    elif event_type == "ARRIVAL" and user_info:
         user_id = str(user_info.get("user_id", "unknown")).strip()
         display_name = str(user_info.get("display_name", user_id)).strip()
         user_key = (user_id or display_name).lower()
@@ -924,12 +974,12 @@ def stream_brain_to_voice(user_text: str):
                     for m in sentence_end_pattern.finditer(buffer):
                         pos = m.end()
                         cand = buffer[:pos].strip()
-                        cand_clean = clean_spoken_text(cand)
+                        cand_clean = clean_display_text(cand)
                         if cand_clean:
                             print(f"\n[AGENT STREAMING]: \"{cand_clean}\"")
                             detect_and_broadcast_hardware(cand_clean)
                             dashboard_server.broadcast_stream_chunk("JARVIS", cand_clean)
-                            synthesize_and_queue(cand_clean)
+                            synthesize_and_queue(cand)
                             buffer = buffer[pos:].lstrip()
                             found_split = True
                             break
@@ -938,12 +988,12 @@ def stream_brain_to_voice(user_text: str):
 
         # Flush any remaining trailing text in the buffer to Kokoro
         if buffer.strip() and not interrupt_requested:
-            remaining = clean_spoken_text(buffer)
+            remaining = clean_display_text(buffer)
             if remaining:
                 print(f"\n[AGENT STREAMING]: \"{remaining}\"")
                 detect_and_broadcast_hardware(remaining)
                 dashboard_server.broadcast_stream_chunk("JARVIS", remaining)
-                synthesize_and_queue(remaining)
+                synthesize_and_queue(buffer)
 
         # Wait for decoupled audio player worker to finish playing all queued chunks
         while (not playback_queue.empty() or is_audio_playing) and not interrupt_requested:

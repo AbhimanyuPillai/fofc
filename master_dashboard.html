@@ -349,6 +349,47 @@
       color: #888888;
     }
 
+    .admin-workspace {
+      position: fixed;
+      inset: 0;
+      z-index: 500;
+      display: none;
+      flex-direction: column;
+      background: #000;
+      padding: 1rem 1.25rem;
+      gap: 0.8rem;
+    }
+
+    .admin-workspace.open { display: flex; }
+    .admin-workspace-header { display:flex; align-items:center; gap:1rem; min-height:42px; border-bottom:1px solid #1e1e1e; padding-bottom:.65rem; }
+    .admin-workspace-title { font-size:.85rem; letter-spacing:.12em; font-weight:700; }
+    .admin-workspace-tabs { display:flex; gap:.45rem; margin-left:auto; }
+    .admin-workspace-body { display:none; flex:1; min-height:0; gap:.9rem; }
+    .admin-workspace-body.active { display:grid; grid-template-columns:minmax(0, 1.2fr) minmax(340px, .8fr); }
+    .admin-live-column, .admin-tools-column { min-width:0; min-height:0; display:flex; flex-direction:column; gap:.75rem; }
+    .admin-live-column > [id$="-feed-slot"] { display:flex; flex:0 0 auto; width:100%; min-height:0; }
+    .admin-live-column .iframe-container { flex:1; min-height:260px; border:1px solid #1e1e1e; border-radius:6px; }
+    .admin-workspace .admin-drawer { display:block !important; border:1px solid #1e1e1e; border-radius:6px; overflow:auto; }
+    .admin-workspace .admin-actions-row { flex-wrap:wrap; }
+    .admin-tools-column { overflow:auto; }
+    .admin-section-heading { font-size:.72rem; color:#aaa; letter-spacing:.08em; text-transform:uppercase; margin:.2rem 0; }
+    .face-sample-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:.5rem; }
+    .face-sample { position:relative; aspect-ratio:4/3; background:#080808; border:1px solid #222; border-radius:4px; overflow:hidden; }
+    .face-sample img { width:100%; height:100%; object-fit:cover; display:block; }
+    .face-sample-label { position:absolute; left:4px; bottom:4px; padding:2px 5px; background:#000c; font: .62rem 'JetBrains Mono',monospace; }
+    .face-sample-actions { position:absolute; top:3px; right:3px; display:flex; gap:3px; }
+    .face-sample-actions button { border:1px solid #333; background:#050505eF; color:#eee; border-radius:3px; cursor:pointer; padding:2px 5px; font-size:.62rem; }
+    .admin-user-list { overflow:auto; display:flex; flex-direction:column; gap:.4rem; max-height:28vh; }
+    .admin-user-row { display:flex; justify-content:space-between; align-items:center; gap:.8rem; padding:.55rem .65rem; border:1px solid #1e1e1e; background:#050505; border-radius:4px; }
+    .admin-user-meta { color:#777; font-size:.68rem; margin-top:3px; }
+    .admin-help { color:#777; font-size:.72rem; line-height:1.5; }
+    .admin-workspace .admin-input, .admin-workspace .admin-select { min-height:32px; }
+    @media (max-width: 850px) {
+      .admin-workspace-body.active { grid-template-columns:1fr; overflow:auto; }
+      .admin-live-column { min-height:40vh; }
+      .face-sample-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    }
+
     .iframe-container {
       flex: 1;
       width: 100%;
@@ -683,8 +724,16 @@
         <div id="admin-drawer-face" class="admin-drawer" style="display: none;">
           <div class="admin-drawer-inner">
             <div class="admin-row">
+              <label class="admin-label">User ID</label>
+              <input type="text" id="admin-face-user-id" class="admin-input" placeholder="Generated from name if blank">
+            </div>
+            <div class="admin-row">
               <label class="admin-label">Display Name</label>
               <input type="text" id="admin-face-name" class="admin-input" placeholder="e.g. Madhur">
+            </div>
+            <div class="admin-row">
+              <label class="admin-label">Role</label>
+              <select id="admin-face-role" class="admin-select"><option value="visitor">Visitor</option><option value="staff">Staff</option></select>
             </div>
             <div class="admin-row">
               <label class="admin-label">Pronunciation Key / Phonetic Override</label>
@@ -698,7 +747,10 @@
               <input type="text" id="admin-face-greeting" class="admin-input" placeholder="e.g. Hey Madhur! Good to see you.">
             </div>
             <div class="admin-row admin-actions-row">
-              <button id="btn-register-face" class="admin-btn admin-btn-primary" type="button">[ Register / Capture Face ]</button>
+              <button id="btn-new-face-user" class="admin-btn" type="button">[ New User ]</button>
+              <button id="btn-update-face-profile" class="admin-btn" type="button" disabled>[ Update Profile ]</button>
+            <button id="btn-capture-face" class="admin-btn" type="button">[ Capture 5 Samples ]</button>
+            <button id="btn-register-face" class="admin-btn admin-btn-primary" type="button" disabled>[ Confirm & Register ]</button>
               <span id="admin-face-feedback" class="admin-feedback"></span>
             </div>
           </div>
@@ -739,28 +791,20 @@
         <div id="admin-drawer-hand" class="admin-drawer" style="display: none;">
           <div class="admin-drawer-inner">
             <div class="admin-row">
-              <label class="admin-label">Target Zone</label>
+              <label class="admin-label">Target</label>
               <div class="input-with-action">
                 <select id="admin-zone-select" class="admin-select" style="flex: 1;">
                 </select>
-                <button id="btn-add-zone" class="admin-btn" type="button">[ + New Target ]</button>
+                <button id="btn-add-zone" class="admin-btn" type="button">[ Draw on Feed ]</button>
               </div>
             </div>
             <div class="admin-row">
               <label class="admin-label">Label / Name Target</label>
               <input type="text" id="admin-zone-name" class="admin-input" placeholder="e.g. ESP32, Jetson, Nucleo">
             </div>
-            <div class="admin-row">
-              <label class="admin-label">Bounding Box Coordinates (X1, Y1, X2, Y2 in 0.0 - 1.0)</label>
-              <div class="coords-grid">
-                <div class="coord-item"><span>X1</span><input type="number" id="zone-x1" class="admin-input coord-input" step="0.01" min="0" max="1" placeholder="0.05"></div>
-                <div class="coord-item"><span>Y1</span><input type="number" id="zone-y1" class="admin-input coord-input" step="0.01" min="0" max="1" placeholder="0.15"></div>
-                <div class="coord-item"><span>X2</span><input type="number" id="zone-x2" class="admin-input coord-input" step="0.01" min="0" max="1" placeholder="0.45"></div>
-                <div class="coord-item"><span>Y2</span><input type="number" id="zone-y2" class="admin-input coord-input" step="0.01" min="0" max="1" placeholder="0.50"></div>
-              </div>
-            </div>
             <div class="admin-row admin-actions-row">
-              <button id="btn-save-zone" class="admin-btn admin-btn-primary" type="button">[ Save & Apply Configuration ]</button>
+              <button id="btn-save-zone" class="admin-btn admin-btn-primary" type="button">[ Save Target Name ]</button>
+              <button id="btn-adjust-targets" class="admin-btn" type="button">[ Move / Resize Targets ]</button>
               <button id="btn-delete-zone" class="admin-btn admin-btn-danger" type="button">[ Delete Area ]</button>
               <span id="admin-hand-feedback" class="admin-feedback"></span>
             </div>
@@ -797,6 +841,32 @@
       </div>
     </div>
   </main>
+
+  <section id="admin-workspace" class="admin-workspace" aria-hidden="true">
+    <div class="admin-workspace-header">
+      <div class="brand-icon" aria-hidden="true">A</div>
+      <div class="admin-workspace-title">STAFF ADMIN</div>
+      <div class="admin-workspace-tabs">
+        <button id="admin-tab-face" class="admin-btn admin-btn-primary" type="button">Face enrollment</button>
+        <button id="admin-tab-hand" class="admin-btn" type="button">Point targets</button>
+      </div>
+      <button id="admin-close" class="admin-btn" type="button" aria-label="Close admin">Close</button>
+    </div>
+    <div id="admin-view-face" class="admin-workspace-body active">
+      <div class="admin-live-column"><h2 class="admin-section-heading">Live face camera</h2><div id="admin-face-feed-slot"></div>
+        <div><h2 class="admin-section-heading">Enrollment samples · capture five, review, then register</h2><p class="admin-help">Ask the visitor to look toward the camera and shift their head slightly between samples.</p><div id="face-sample-grid" class="face-sample-grid"></div></div>
+      </div>
+      <div class="admin-tools-column"><div id="admin-face-tools-slot"></div>
+        <h2 class="admin-section-heading">Registered visitors</h2><div id="admin-user-list" class="admin-user-list"></div>
+      </div>
+    </div>
+    <div id="admin-view-hand" class="admin-workspace-body">
+      <div class="admin-live-column"><h2 class="admin-section-heading">Live point camera · draw a target directly on the feed</h2><div id="admin-hand-feed-slot"></div>
+        <p class="admin-help">Use “Draw on Feed”, then drag to create a target area. Existing targets can be moved or resized from the feed’s adjust mode. Changes are saved and applied to the pointing engine.</p>
+      </div>
+      <div class="admin-tools-column"><div id="admin-hand-tools-slot"></div></div>
+    </div>
+  </section>
 
   <!-- DIALOGUE STREAM, MEDIA SELECTORS & IPC CLIENT SCRIPT -->
   <script>
@@ -899,8 +969,7 @@
     }
 
     // LOG DEDUPLICATION & DE-BOUNCING
-    let lastLogSignature = "";
-    let lastLogTime = 0;
+    const recentLogSignatures = new Map();
 
     // SANITIZE LEGACY TECHNICAL & SUBSYSTEM LABELS
     function sanitizeLegacyLabels(text) {
@@ -922,12 +991,15 @@
       const now = Date.now();
       const signature = `${normalizedRole}:${rawText}`;
 
-      // Suppress exact duplicates received within a 1000ms window
-      if (signature === lastLogSignature && (now - lastLogTime) < 1000) {
+      // Suppress exact duplicates even when a state or focus event arrives between them.
+      const lastSeen = recentLogSignatures.get(signature);
+      if (lastSeen && (now - lastSeen) < 1000) {
         return;
       }
-      lastLogSignature = signature;
-      lastLogTime = now;
+      recentLogSignatures.set(signature, now);
+      for (const [seenSignature, seenAt] of recentLogSignatures) {
+        if (now - seenAt >= 2000) recentLogSignatures.delete(seenSignature);
+      }
 
       // STRICT NOISE FILTER
       const noisePatterns = [
@@ -1129,18 +1201,13 @@
       }
     }
 
-    // POST MESSAGE TO EMBEDDED IFRAMES
-    function notifyIframe(iframe, kind, deviceId) {
+    // Camera device IDs are scoped to each iframe's origin, so the iframe that
+    // owns the camera stream reports its own list to the parent dashboard.
+    function notifyIframe(iframe, deviceId) {
       if (!iframe || !iframe.contentWindow) return;
       try {
         iframe.contentWindow.postMessage({
           type: 'CHANGE_CAMERA',
-          kind: kind,
-          deviceId: deviceId
-        }, '*');
-        iframe.contentWindow.postMessage({
-          type: 'REPOS_MEDIA_SELECT',
-          kind: kind,
           deviceId: deviceId
         }, '*');
       } catch (e) {
@@ -1148,90 +1215,92 @@
       }
     }
 
-    // DECOUPLED MEDIA DEVICE ENUMERATION & SYNCHRONIZATION WITH BACKEND HARDWARE INDEXING
+    function requestCameraDevices(iframe, stream) {
+      if (!iframe || !iframe.contentWindow) return;
+      iframe.contentWindow.postMessage({ type: 'ENUMERATE_CAMERAS', stream }, '*');
+    }
+
+    function renderCameraDevices(stream, devices, activeDeviceId = '', selectionFailed = false) {
+      const isFacecam = stream === 'facecam';
+      const selector = document.getElementById(isFacecam ? 'cam-select-1' : 'cam-select-2');
+      const iframe = document.getElementById(isFacecam ? 'iframe-face' : 'iframe-point');
+      if (!selector) return;
+
+      if (selectionFailed) {
+        localStorage.removeItem(`${stream}_device`);
+        localStorage.removeItem(`${stream}_label`);
+      }
+      const savedId = localStorage.getItem(`${stream}_device`) || '';
+      const usableDevices = Array.isArray(devices) ? devices.filter(d => d && d.deviceId) : [];
+      selector.innerHTML = '';
+
+      if (usableDevices.length === 0) {
+        const emptyOption = document.createElement('option');
+        emptyOption.value = '';
+        emptyOption.textContent = 'No cameras found';
+        selector.appendChild(emptyOption);
+        return;
+      }
+
+      usableDevices.forEach((device, index) => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        option.textContent = device.label || `Camera ${index + 1}`;
+        selector.appendChild(option);
+      });
+
+      const hasDevice = id => id && usableDevices.some(device => device.deviceId === id);
+      const selectedId = hasDevice(savedId)
+        ? savedId
+        : hasDevice(activeDeviceId)
+          ? activeDeviceId
+          : usableDevices[0].deviceId;
+      selector.value = selectedId;
+
+      const selectedDevice = usableDevices.find(device => device.deviceId === selectedId);
+      localStorage.setItem(`${stream}_device`, selectedId);
+      localStorage.setItem(`${stream}_label`, selectedDevice?.label || '');
+
+      // Re-select a persisted camera when it is available, or choose the
+      // iframe's active/default camera when a saved device has disappeared.
+      if (selectedId !== activeDeviceId) notifyIframe(iframe, selectedId);
+    }
+
+    window.addEventListener('message', (event) => {
+      const data = event.data;
+      if (!data || data.type !== 'CAMERA_DEVICES') return;
+
+      const faceFrame = document.getElementById('iframe-face');
+      const handFrame = document.getElementById('iframe-point');
+      const expectedFrame = data.stream === 'facecam' ? faceFrame
+        : data.stream === 'handcam' ? handFrame : null;
+      if (!expectedFrame || event.source !== expectedFrame.contentWindow) return;
+
+      renderCameraDevices(data.stream, data.devices, data.activeDeviceId || '', data.selectionFailed === true);
+    });
+
+    // Enumerate microphones in the dashboard context. Camera enumeration is
+    // handled by each embedded feed, where its camera permission and device IDs live.
     async function syncMediaSelectors() {
       try {
         if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
           return;
         }
 
-        // 1. Fetch persistent device configuration and hardware camera indices from backend
         let backendConfig = {};
-        let cameraConfig = {};
         try {
           const cfgRes = await fetch('http://127.0.0.1:8088/api/device_config');
           if (cfgRes.ok) backendConfig = await cfgRes.json();
         } catch (e) {}
-        try {
-          const camRes = await fetch('http://127.0.0.1:8088/api/camera_config');
-          if (camRes.ok) cameraConfig = await camRes.json();
-        } catch (e) {}
 
-        const savedFaceCam = localStorage.getItem('facecam_device') || backendConfig.facecam_device || "";
-        const savedHandCam = localStorage.getItem('handcam_device') || backendConfig.handcam_device || "";
         const savedMic = localStorage.getItem('agent_mic_device') || backendConfig.agent_mic_device || "";
         const savedMicLabel = localStorage.getItem('agent_mic_label') || backendConfig.agent_mic_name || "";
 
         const devices = await navigator.mediaDevices.enumerateDevices();
-        const cam1 = document.getElementById('cam-select-1');
-        const cam2 = document.getElementById('cam-select-2');
         const mic1 = document.getElementById('mic-select-1');
         const mic2 = document.getElementById('mic-select-2');
-        const iframe1 = document.getElementById('iframe-face');
-        const iframe2 = document.getElementById('iframe-point');
 
-        const videoDevices = devices.filter(d => d.kind === 'videoinput');
         const audioDevices = devices.filter(d => d.kind === 'audioinput');
-
-        // Populate FACECAM (cam-select-1)
-        if (cam1) {
-          cam1.innerHTML = '<option value="">Camera</option>';
-          videoDevices.forEach((d, idx) => {
-            const opt = document.createElement('option');
-            opt.value = d.deviceId;
-            opt.dataset.index = String(idx);
-            opt.textContent = `[${idx}] ` + (d.label || `Camera ${idx + 1}`);
-            cam1.appendChild(opt);
-          });
-          const targetFaceIdx = cameraConfig.facecam_index !== undefined ? cameraConfig.facecam_index : 0;
-          const matchByIndex = Array.from(cam1.options).find(o => o.dataset.index === String(targetFaceIdx));
-          if (matchByIndex) {
-            cam1.value = matchByIndex.value;
-          } else if (savedFaceCam && Array.from(cam1.options).some(o => o.value === savedFaceCam)) {
-            cam1.value = savedFaceCam;
-          } else if (cam1.options.length > 1) {
-            cam1.selectedIndex = 1;
-          }
-          if (cam1.value) {
-            notifyIframe(iframe1, 'videoinput', cam1.value);
-          }
-        }
-
-        // Populate HANDCAM (cam-select-2)
-        if (cam2) {
-          cam2.innerHTML = '<option value="">Camera</option>';
-          videoDevices.forEach((d, idx) => {
-            const opt = document.createElement('option');
-            opt.value = d.deviceId;
-            opt.dataset.index = String(idx);
-            opt.textContent = `[${idx}] ` + (d.label || `Camera ${idx + 1}`);
-            cam2.appendChild(opt);
-          });
-          const targetHandIdx = cameraConfig.handcam_index !== undefined ? cameraConfig.handcam_index : 1;
-          const matchByIndex = Array.from(cam2.options).find(o => o.dataset.index === String(targetHandIdx));
-          if (matchByIndex) {
-            cam2.value = matchByIndex.value;
-          } else if (savedHandCam && Array.from(cam2.options).some(o => o.value === savedHandCam)) {
-            cam2.value = savedHandCam;
-          } else if (cam2.options.length > 2) {
-            cam2.selectedIndex = 2;
-          } else if (cam2.options.length > 1) {
-            cam2.selectedIndex = 1;
-          }
-          if (cam2.value) {
-            notifyIframe(iframe2, 'videoinput', cam2.value);
-          }
-        }
 
         // Populate Microphones (mic-select-1 and mic-select-2)
         [mic1, mic2].forEach(sel => {
@@ -1286,21 +1355,10 @@
         cam1.addEventListener('change', (e) => {
           const devId = e.target.value;
           const opt = e.target.selectedOptions[0];
-          const devIdx = opt && opt.dataset.index !== undefined ? parseInt(opt.dataset.index, 10) : 0;
-          const label = opt ? opt.text : "";
+          const label = opt ? opt.textContent : "";
           localStorage.setItem('facecam_device', devId);
           localStorage.setItem('facecam_label', label);
-          localStorage.setItem('facecam_index', devIdx);
-          notifyIframe(iframe1, 'videoinput', devId);
-
-          // Backend dynamic re-binding for OpenCV VideoCapture & camera_config.json
-          fetch('http://127.0.0.1:8088/api/set_camera', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ stream: 'facecam', index: devIdx })
-          }).catch(() => {});
-
-          persistDeviceConfig('facecam', devId, label);
+          notifyIframe(iframe1, devId);
         });
       }
 
@@ -1309,21 +1367,10 @@
         cam2.addEventListener('change', (e) => {
           const devId = e.target.value;
           const opt = e.target.selectedOptions[0];
-          const devIdx = opt && opt.dataset.index !== undefined ? parseInt(opt.dataset.index, 10) : 1;
-          const label = opt ? opt.text : "";
+          const label = opt ? opt.textContent : "";
           localStorage.setItem('handcam_device', devId);
           localStorage.setItem('handcam_label', label);
-          localStorage.setItem('handcam_index', devIdx);
-          notifyIframe(iframe2, 'videoinput', devId);
-
-          // Backend dynamic re-binding for OpenCV VideoCapture & camera_config.json
-          fetch('http://127.0.0.1:8088/api/set_camera', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ stream: 'handcam', index: devIdx })
-          }).catch(() => {});
-
-          persistDeviceConfig('handcam', devId, label);
+          notifyIframe(iframe2, devId);
         });
       }
 
@@ -1349,15 +1396,17 @@
 
       // Re-dispatch camera to iframes once they are fully loaded
       if (iframe1) {
-        iframe1.addEventListener('load', () => {
-          if (cam1 && cam1.value) notifyIframe(iframe1, 'videoinput', cam1.value);
-        });
+        iframe1.addEventListener('load', () => requestCameraDevices(iframe1, 'facecam'));
       }
       if (iframe2) {
-        iframe2.addEventListener('load', () => {
-          if (cam2 && cam2.value) notifyIframe(iframe2, 'videoinput', cam2.value);
-        });
+        iframe2.addEventListener('load', () => requestCameraDevices(iframe2, 'handcam'));
       }
+
+      // Handles cases where an iframe finished loading before these listeners were installed.
+      setTimeout(() => {
+        requestCameraDevices(iframe1, 'facecam');
+        requestCameraDevices(iframe2, 'handcam');
+      }, 300);
 
       if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
         navigator.mediaDevices.addEventListener('devicechange', syncMediaSelectors);
@@ -1366,235 +1415,398 @@
 
     // COLLAPSIBLE ADMIN PANELS (FACECAM & HANDCAM)
     function initAdminPanels() {
-      const toggleFace = document.getElementById('toggle-admin-face');
-      const drawerFace = document.getElementById('admin-drawer-face');
-      const toggleHand = document.getElementById('toggle-admin-hand');
-      const drawerHand = document.getElementById('admin-drawer-hand');
-
-      const iframeFace = document.getElementById('iframe-face');
-      const iframePoint = document.getElementById('iframe-point');
-
-      // 1. Drawer Toggle Handlers
-      if (toggleFace && drawerFace) {
-        toggleFace.addEventListener('click', () => {
-          const isOpen = drawerFace.style.display !== 'none';
-          drawerFace.style.display = isOpen ? 'none' : 'block';
-          toggleFace.classList.toggle('active', !isOpen);
-        });
-      }
-
-      if (toggleHand && drawerHand) {
-        toggleHand.addEventListener('click', () => {
-          const isOpen = drawerHand.style.display !== 'none';
-          drawerHand.style.display = isOpen ? 'none' : 'block';
-          toggleHand.classList.toggle('active', !isOpen);
-          if (!isOpen) loadZones();
-        });
-      }
-
-      // 2. FACECAM Admin Options (Kokoro TTS Pronunciation Preview & Face Registration)
-      const btnTestPron = document.getElementById('btn-test-pronunciation');
-      const btnRegisterFace = document.getElementById('btn-register-face');
-      const faceNameIn = document.getElementById('admin-face-name');
-      const facePronIn = document.getElementById('admin-face-pronunciation');
-      const faceGreetIn = document.getElementById('admin-face-greeting');
+      const workspace = document.getElementById('admin-workspace');
+      const faceFrame = document.getElementById('iframe-face');
+      const handFrame = document.getElementById('iframe-point');
+      const faceFeed = faceFrame?.parentElement;
+      const handFeed = handFrame?.parentElement;
+      const faceDrawer = document.getElementById('admin-drawer-face');
+      const handDrawer = document.getElementById('admin-drawer-hand');
+      const faceHome = faceFeed?.parentElement;
+      const handHome = handFeed?.parentElement;
+      const faceFeedRect = faceFeed?.getBoundingClientRect();
+      const handFeedRect = handFeed?.getBoundingClientRect();
+      const faceFeedAspect = faceFeedRect?.height ? faceFeedRect.width / faceFeedRect.height : 1.8;
+      const handFeedAspect = handFeedRect?.height ? handFeedRect.width / handFeedRect.height : 2.7;
+      const faceDrawerHome = faceDrawer?.parentElement;
+      const handDrawerHome = handDrawer?.parentElement;
+      const faceFeedNext = faceFeed?.nextSibling;
+      const handFeedNext = handFeed?.nextSibling;
+      const faceDrawerNext = faceDrawer?.nextSibling;
+      const handDrawerNext = handDrawer?.nextSibling;
       const faceFeedback = document.getElementById('admin-face-feedback');
+      const handFeedback = document.getElementById('admin-hand-feedback');
+      const faceName = document.getElementById('admin-face-name');
+      const faceUserId = document.getElementById('admin-face-user-id');
+      const faceRole = document.getElementById('admin-face-role');
+      const facePron = document.getElementById('admin-face-pronunciation');
+      const faceGreeting = document.getElementById('admin-face-greeting');
+      const sampleGrid = document.getElementById('face-sample-grid');
+      const registerButton = document.getElementById('btn-register-face');
+      const samples = Array(5).fill(null);
+      const sampleUrls = Array(5).fill(null);
+      const pendingSamples = new Map();
+      let registeredUserIds = new Set();
+      let editingUserId = null;
+      let currentZones = [];
+      let adjustModeEnabled = false;
+      let previewAudioContext = null;
+      let previewAudioSource = null;
 
-      if (btnTestPron) {
-        btnTestPron.addEventListener('click', async () => {
-          const pronText = (facePronIn?.value || faceNameIn?.value || '').trim();
-          if (!pronText) {
-            if (faceFeedback) faceFeedback.textContent = '[Please enter a Name or Pronunciation Key]';
-            return;
-          }
-          if (faceFeedback) faceFeedback.textContent = '[Synthesizing Kokoro TTS preview...]';
-          try {
-            const res = await fetch('http://127.0.0.1:8088/api/tts_preview', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: pronText })
-            });
-            if (res.ok) {
-              const blob = await res.blob();
-              const audioUrl = URL.createObjectURL(blob);
-              const audio = new Audio(audioUrl);
-              audio.play();
-              if (faceFeedback) faceFeedback.textContent = `[Playing Kokoro preview for "${pronText}"]`;
-            } else {
-              if (faceFeedback) faceFeedback.textContent = `[Preview failed: ${res.statusText}]`;
-            }
-          } catch (err) {
-            if (faceFeedback) faceFeedback.textContent = `[TTS connection error: ${err.message}]`;
-          }
-        });
+      function moveNode(node, destination, originalParent, originalNext) {
+        if (!node || !destination) return;
+        if (destination.contains(node)) return;
+        destination.appendChild(node);
+        if (originalParent) node.dataset.adminHome = 'set';
       }
-
-      if (btnRegisterFace) {
-        btnRegisterFace.addEventListener('click', () => {
-          const dName = (faceNameIn?.value || '').trim();
-          const pronKey = (facePronIn?.value || '').trim();
-          const customGreet = (faceGreetIn?.value || '').trim();
-
-          if (!dName) {
-            if (faceFeedback) faceFeedback.textContent = '[Display Name is required for registration]';
-            return;
-          }
-          if (faceFeedback) faceFeedback.textContent = '[Capturing 3 camera snapshots & enrolling face...]';
-
-          iframeFace?.contentWindow?.postMessage({
-            type: 'CAPTURE_AND_REGISTER',
-            displayName: dName,
-            pronunciation: pronKey,
-            customGreeting: customGreet
-          }, '*');
-        });
+      function restoreNode(node, originalParent, originalNext) {
+        if (!node || !originalParent || !node.dataset.adminHome) return;
+        if (originalNext?.parentNode === originalParent) originalParent.insertBefore(node, originalNext);
+        else originalParent.appendChild(node);
+        delete node.dataset.adminHome;
       }
+      function closeAdmin() {
+        if (adjustModeEnabled) {
+          handFrame?.contentWindow?.postMessage({ type: 'ADMIN_TOGGLE_ADJUST' }, '*');
+          adjustModeEnabled = false;
+          const adjustButton = document.getElementById('btn-adjust-targets');
+          if (adjustButton) adjustButton.textContent = '[ Move / Resize Targets ]';
+        }
+        handFrame?.contentWindow?.postMessage({ type: 'ADMIN_CANCEL_DRAWING' }, '*');
+        workspace?.classList.remove('open');
+        workspace?.setAttribute('aria-hidden', 'true');
+        restoreNode(faceFeed, faceHome, faceFeedNext);
+        restoreNode(handFeed, handHome, handFeedNext);
+        restoreNode(faceDrawer, faceDrawerHome, faceDrawerNext);
+        restoreNode(handDrawer, handDrawerHome, handDrawerNext);
+        [faceFeed, handFeed].forEach(feed => {
+          if (!feed) return;
+          feed.style.aspectRatio = '';
+          feed.style.flex = '';
+          feed.style.height = '';
+          feed.style.alignSelf = '';
+        });
+        document.getElementById('toggle-admin-face')?.classList.remove('active');
+        document.getElementById('toggle-admin-hand')?.classList.remove('active');
+      }
+      function setAdminTab(tab) {
+        const isFace = tab === 'face';
+        document.getElementById('admin-view-face')?.classList.toggle('active', isFace);
+        document.getElementById('admin-view-hand')?.classList.toggle('active', !isFace);
+        document.getElementById('admin-tab-face')?.classList.toggle('admin-btn-primary', isFace);
+        document.getElementById('admin-tab-hand')?.classList.toggle('admin-btn-primary', !isFace);
+      }
+      function openAdmin(tab) {
+        moveNode(faceFeed, document.getElementById('admin-face-feed-slot'), faceHome, faceFeedNext);
+        moveNode(faceDrawer, document.getElementById('admin-face-tools-slot'), faceDrawerHome, faceDrawerNext);
+        moveNode(handFeed, document.getElementById('admin-hand-feed-slot'), handHome, handFeedNext);
+        moveNode(handDrawer, document.getElementById('admin-hand-tools-slot'), handDrawerHome, handDrawerNext);
+        if (faceFeed) { faceFeed.style.aspectRatio = String(faceFeedAspect); faceFeed.style.flex = '0 0 auto'; faceFeed.style.height = 'auto'; faceFeed.style.alignSelf = 'flex-start'; }
+        if (handFeed) { handFeed.style.aspectRatio = String(handFeedAspect); handFeed.style.flex = '0 0 auto'; handFeed.style.height = 'auto'; handFeed.style.alignSelf = 'flex-start'; }
+        workspace?.classList.add('open');
+        workspace?.setAttribute('aria-hidden', 'false');
+        document.getElementById(tab === 'face' ? 'toggle-admin-face' : 'toggle-admin-hand')?.classList.add('active');
+        setAdminTab(tab);
+        if (tab === 'face') loadUsers();
+        else loadZones();
+      }
+      document.getElementById('toggle-admin-face')?.addEventListener('click', () => openAdmin('face'));
+      document.getElementById('toggle-admin-hand')?.addEventListener('click', () => openAdmin('hand'));
+      document.getElementById('admin-close')?.addEventListener('click', closeAdmin);
+      document.getElementById('admin-tab-face')?.addEventListener('click', () => { setAdminTab('face'); loadUsers(); });
+      document.getElementById('admin-tab-hand')?.addEventListener('click', () => { setAdminTab('hand'); loadZones(); });
+      document.addEventListener('keydown', e => { if (e.key === 'Escape' && workspace?.classList.contains('open')) closeAdmin(); });
 
-      // Handle Registration Result Message from embedded FACECAM iframe
-      window.addEventListener('message', (e) => {
-        if (!e.data) return;
-        if (e.data.type === 'REGISTER_RESULT') {
-          if (faceFeedback) {
-            if (e.data.success) {
-              faceFeedback.textContent = `[OK] Enrolled "${e.data.displayName}" (${e.data.samples} embeddings saved)`;
-            } else {
-              faceFeedback.textContent = `[Enrollment failed: ${e.data.error || 'Unknown'}]`;
-            }
+      document.getElementById('btn-new-face-user')?.addEventListener('click', () => {
+        editingUserId = null;
+        if (faceUserId) { faceUserId.value = ''; faceUserId.readOnly = false; }
+        if (faceName) faceName.value = '';
+        if (faceRole) faceRole.value = 'visitor';
+        if (facePron) facePron.value = '';
+        if (faceGreeting) faceGreeting.value = '';
+        samples.fill(null); renderSamples();
+        const updateButton = document.getElementById('btn-update-face-profile');
+        if (updateButton) updateButton.disabled = true;
+        if (faceFeedback) faceFeedback.textContent = '[Ready to add a new visitor.]';
+      });
+      document.getElementById('btn-update-face-profile')?.addEventListener('click', async () => {
+        if (!editingUserId) return;
+        const displayName = (faceName?.value || '').trim();
+        if (!displayName) { if (faceFeedback) faceFeedback.textContent = '[Display name is required.]'; return; }
+        const updateButton = document.getElementById('btn-update-face-profile');
+        if (updateButton) updateButton.disabled = true;
+        try {
+          const response = await fetch(`http://127.0.0.1:8088/api/users/${encodeURIComponent(editingUserId)}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ display_name: displayName, role: faceRole?.value || 'visitor', pronunciation: (facePron?.value || '').trim(), custom_greeting: (faceGreeting?.value || '').trim() })
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.detail || `HTTP ${response.status}`);
+          if (faceFeedback) faceFeedback.textContent = `[Profile saved as “${result.display_name}”.]`;
+          await loadUsers();
+        } catch (err) {
+          if (faceFeedback) faceFeedback.textContent = `[Profile update failed: ${err.message}]`;
+        } finally { if (updateButton) updateButton.disabled = !editingUserId; }
+      });
+
+      const testPronunciationButton = document.getElementById('btn-test-pronunciation');
+      testPronunciationButton?.addEventListener('click', async () => {
+        const previewText = (facePron?.value || '').trim() || (faceName?.value || '').trim();
+        if (!previewText) { if (faceFeedback) faceFeedback.textContent = '[Enter a name or pronunciation key first.]'; return; }
+        testPronunciationButton.disabled = true;
+        try {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          let resumeAudio = null;
+          if (AudioContextClass) {
+            previewAudioContext ||= new AudioContextClass();
+            // Resume immediately in the click gesture so playback remains allowed after synthesis completes.
+            resumeAudio = previewAudioContext.resume();
           }
-        } else if (e.data.type === 'ZONES_DATA' && Array.isArray(e.data.zones) && currentZones.length === 0) {
-          currentZones = e.data.zones;
-          renderZoneOptions();
+          if (faceFeedback) faceFeedback.textContent = '[Generating pronunciation preview…]';
+          const response = await fetch('http://127.0.0.1:8088/api/tts_preview', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: previewText })
+          });
+          if (!response.ok) {
+            let detail = response.statusText;
+            try { detail = (await response.json()).detail || detail; } catch (_) {}
+            throw new Error(detail);
+          }
+          const audioBytes = await response.arrayBuffer();
+          if (!audioBytes.byteLength) throw new Error('The speech service returned an empty audio file.');
+          if (previewAudioContext) {
+            await resumeAudio;
+            const audioBuffer = await previewAudioContext.decodeAudioData(audioBytes);
+            if (previewAudioSource) { try { previewAudioSource.stop(); } catch (_) {} }
+            const source = previewAudioContext.createBufferSource();
+            previewAudioSource = source;
+            source.buffer = audioBuffer;
+            source.connect(previewAudioContext.destination);
+            source.onended = () => { if (previewAudioSource === source) previewAudioSource = null; };
+            source.start();
+          } else {
+            const audioUrl = URL.createObjectURL(new Blob([audioBytes], { type: 'audio/wav' }));
+            const audio = new Audio(audioUrl);
+            await audio.play();
+            audio.addEventListener('ended', () => URL.revokeObjectURL(audioUrl), { once: true });
+          }
+          if (faceFeedback) faceFeedback.textContent = `[Playing pronunciation: ${previewText}]`;
+        } catch (err) {
+          if (faceFeedback) faceFeedback.textContent = `[Pronunciation preview failed: ${err.message}]`;
+        } finally {
+          testPronunciationButton.disabled = false;
         }
       });
 
-      // 3. HANDCAM Admin Options (Interactive Area Bounding Box Configuration)
-      let currentZones = [];
-      const zoneSelect = document.getElementById('admin-zone-select');
-      const zoneNameIn = document.getElementById('admin-zone-name');
-      const zX1 = document.getElementById('zone-x1');
-      const zY1 = document.getElementById('zone-y1');
-      const zX2 = document.getElementById('zone-x2');
-      const zY2 = document.getElementById('zone-y2');
-      const handFeedback = document.getElementById('admin-hand-feedback');
-
-      async function loadZones() {
-        try {
-          const res = await fetch('http://127.0.0.1:8088/api/zones');
-          if (res.ok) {
-            const data = await res.json();
-            if (Array.isArray(data) && data.length > 0) {
-              currentZones = data;
-              renderZoneOptions();
-              return;
-            }
+      function renderSamples() {
+        if (!sampleGrid) return;
+        sampleGrid.innerHTML = '';
+        samples.forEach((blob, index) => {
+          const card = document.createElement('div');
+          card.className = 'face-sample';
+          if (sampleUrls[index]) URL.revokeObjectURL(sampleUrls[index]);
+          sampleUrls[index] = blob ? URL.createObjectURL(blob) : null;
+          if (blob) {
+            const img = document.createElement('img');
+            img.src = sampleUrls[index];
+            img.alt = `Captured face sample ${index + 1}`;
+            card.appendChild(img);
+          } else {
+            card.innerHTML = '<span class="face-sample-label">Awaiting sample</span>';
           }
-        } catch (e) {}
-        // Fallback: request active zones from HANDCAM iframe
-        iframePoint?.contentWindow?.postMessage({ type: 'GET_ZONES' }, '*');
+          const label = document.createElement('span');
+          label.className = 'face-sample-label';
+          label.textContent = `Sample ${index + 1}`;
+          card.appendChild(label);
+          if (blob) {
+            const actions = document.createElement('div');
+            actions.className = 'face-sample-actions';
+            const retake = document.createElement('button');
+            retake.type = 'button'; retake.textContent = 'Retake';
+            retake.addEventListener('click', async () => {
+              retake.disabled = true;
+              try { samples[index] = await captureSample(index); renderSamples(); }
+              catch (err) { if (faceFeedback) faceFeedback.textContent = `[Retake failed: ${err.message}]`; retake.disabled = false; }
+            });
+            const remove = document.createElement('button');
+            remove.type = 'button'; remove.textContent = '×'; remove.title = 'Remove sample';
+            remove.addEventListener('click', () => { samples[index] = null; renderSamples(); updateRegisterState(); });
+            actions.append(retake, remove); card.appendChild(actions);
+          }
+          sampleGrid.appendChild(card);
+        });
+        updateRegisterState();
+      }
+      function updateRegisterState() {
+        if (registerButton) registerButton.disabled = samples.some(sample => !sample);
+      }
+      function captureSample(index) {
+        return new Promise((resolve, reject) => {
+          const requestId = `face-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`;
+          const timeout = setTimeout(() => { pendingSamples.delete(requestId); reject(new Error('Camera did not return a sample.')); }, 8000);
+          pendingSamples.set(requestId, { index, resolve, reject, timeout });
+          faceFrame?.contentWindow?.postMessage({ type: 'CAPTURE_FACE_SAMPLE', requestId, index }, '*');
+        });
+      }
+      document.getElementById('btn-capture-face')?.addEventListener('click', async () => {
+        const button = document.getElementById('btn-capture-face');
+        if (button) button.disabled = true;
+        for (let i = 0; i < samples.length; i++) {
+          if (faceFeedback) faceFeedback.textContent = `[Capturing sample ${i + 1} of 5…]`;
+          try { samples[i] = await captureSample(i); renderSamples(); }
+          catch (err) { if (faceFeedback) faceFeedback.textContent = `[Capture stopped: ${err.message}]`; break; }
+          if (i < samples.length - 1) await new Promise(resolve => setTimeout(resolve, 650));
+        }
+        if (button) button.disabled = false;
+        if (faceFeedback && samples.every(Boolean)) faceFeedback.textContent = '[Review the five images, retake or remove any, then register.]';
+      });
+
+      function generatedUserId(name) {
+        return name.toLowerCase().trim().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || `visitor_${Date.now()}`;
+      }
+      registerButton?.addEventListener('click', () => {
+        const displayName = (faceName?.value || '').trim();
+        if (!displayName) { if (faceFeedback) faceFeedback.textContent = '[Display name is required.]'; return; }
+        if (samples.some(sample => !sample)) { if (faceFeedback) faceFeedback.textContent = '[Capture all five samples before registering.]'; return; }
+        const userId = (faceUserId?.value || '').trim() || generatedUserId(displayName);
+        const isExistingProfile = registeredUserIds.has(userId.toLowerCase());
+        if (faceFeedback) faceFeedback.textContent = isExistingProfile
+          ? '[Updating this profile and adding the five new samples…]'
+          : '[Saving face samples…]';
+        registerButton.disabled = true;
+        faceFrame?.contentWindow?.postMessage({
+          type: 'REGISTER_FACE_SAMPLES', userId, displayName,
+          role: faceRole?.value || 'visitor',
+          pronunciation: (facePron?.value || '').trim(),
+          customGreeting: (faceGreeting?.value || '').trim(), samples
+        }, '*');
+      });
+
+      async function loadUsers() {
+        const list = document.getElementById('admin-user-list');
+        if (!list) return;
+        list.innerHTML = '<div class="admin-help">Loading registered users…</div>';
+        try {
+          const response = await fetch('http://127.0.0.1:8088/api/users');
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const users = await response.json();
+          registeredUserIds = new Set(users.map(user => String(user.user_id || '').toLowerCase()));
+          list.innerHTML = '';
+          if (!users.length) { list.innerHTML = '<div class="admin-help">No users registered yet.</div>'; return; }
+          users.forEach(user => {
+            const row = document.createElement('div'); row.className = 'admin-user-row';
+            const info = document.createElement('div');
+            const name = document.createElement('strong'); name.textContent = user.display_name || user.user_id;
+            const meta = document.createElement('div'); meta.className = 'admin-user-meta';
+            meta.textContent = `${user.user_id} · ${user.role || 'visitor'} · ${user.sample_count || 0} samples${user.pronunciation ? ` · says “${user.pronunciation}”` : ''}`;
+            info.append(name, meta);
+            const actions = document.createElement('div'); actions.className = 'admin-actions-row';
+            const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'admin-btn'; edit.textContent = 'Edit';
+            edit.addEventListener('click', () => {
+              editingUserId = user.user_id;
+              if (faceUserId) { faceUserId.value = user.user_id; faceUserId.readOnly = true; }
+              if (faceName) faceName.value = user.display_name || user.user_id;
+              if (faceRole) faceRole.value = user.role || 'visitor';
+              if (facePron) facePron.value = user.pronunciation || '';
+              if (faceGreeting) faceGreeting.value = user.custom_greeting || '';
+              const updateButton = document.getElementById('btn-update-face-profile');
+              if (updateButton) updateButton.disabled = false;
+              if (faceFeedback) faceFeedback.textContent = `[Editing ${user.display_name || user.user_id}. Update details here, or capture five more samples and confirm enrollment.]`;
+            });
+            const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'admin-btn admin-btn-danger'; remove.textContent = 'Delete';
+            remove.addEventListener('click', async () => {
+              if (!confirm(`Delete ${user.display_name || user.user_id} and their face samples?`)) return;
+              try {
+                const result = await fetch(`http://127.0.0.1:8088/api/users/${encodeURIComponent(user.user_id)}`, { method: 'DELETE' });
+                if (!result.ok) throw new Error((await result.json()).detail || `HTTP ${result.status}`);
+                loadUsers();
+              } catch (err) { if (faceFeedback) faceFeedback.textContent = `[Delete failed: ${err.message}]`; }
+            });
+            actions.append(edit, remove);
+            row.append(info, actions); list.appendChild(row);
+          });
+        } catch (err) { list.innerHTML = `<div class="admin-help">Could not load users: ${err.message}</div>`; }
       }
 
-      function renderZoneOptions(selectId = null) {
+      const zoneSelect = document.getElementById('admin-zone-select');
+      const zoneName = document.getElementById('admin-zone-name');
+      function renderZoneOptions(selectedId = '') {
         if (!zoneSelect) return;
         zoneSelect.innerHTML = '';
-        currentZones.forEach((z, idx) => {
-          const opt = document.createElement('option');
-          opt.value = z.id || `zone_${idx}`;
-          opt.textContent = z.name || `Target ${idx + 1}`;
-          zoneSelect.appendChild(opt);
+        currentZones.forEach((zone, index) => {
+          const option = document.createElement('option'); option.value = zone.id || `zone_${index}`; option.textContent = zone.name || `Target ${index + 1}`; zoneSelect.appendChild(option);
         });
-        if (selectId) zoneSelect.value = selectId;
-        populateActiveZoneFields();
+        if (selectedId) zoneSelect.value = selectedId;
+        const selected = currentZones.find(zone => zone.id === zoneSelect.value) || currentZones[0];
+        if (zoneName) zoneName.value = selected?.name || '';
       }
-
-      function populateActiveZoneFields() {
-        const selectedId = zoneSelect?.value;
-        const zone = currentZones.find(z => (z.id || '') === selectedId) || currentZones[0];
-        if (zone) {
-          if (zoneNameIn) zoneNameIn.value = zone.name || '';
-          const x1 = zone.x !== undefined ? zone.x : (zone.points ? zone.points[0]?.x : 0.05);
-          const y1 = zone.y !== undefined ? zone.y : (zone.points ? zone.points[0]?.y : 0.15);
-          const w = zone.w !== undefined ? zone.w : 0.4;
-          const h = zone.h !== undefined ? zone.h : 0.35;
-          if (zX1) zX1.value = Number(x1).toFixed(2);
-          if (zY1) zY1.value = Number(y1).toFixed(2);
-          if (zX2) zX2.value = Number(x1 + w).toFixed(2);
-          if (zY2) zY2.value = Number(y1 + h).toFixed(2);
-        }
+      async function loadZones() {
+        try {
+          const response = await fetch('http://127.0.0.1:8088/api/zones');
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          currentZones = await response.json();
+          renderZoneOptions();
+          handFrame?.contentWindow?.postMessage({ type: 'SET_ZONES', zones: currentZones }, '*');
+        } catch (err) { handFrame?.contentWindow?.postMessage({ type: 'GET_ZONES' }, '*'); }
       }
-
-      if (zoneSelect) zoneSelect.addEventListener('change', populateActiveZoneFields);
-
-      document.getElementById('btn-add-zone')?.addEventListener('click', () => {
-        const newId = 'zone_' + Date.now();
-        const newZ = {
-          id: newId,
-          name: `Target ${currentZones.length + 1}`,
-          x: 0.10,
-          y: 0.15,
-          w: 0.35,
-          h: 0.35,
-          color: '#38bdf8'
-        };
-        currentZones.push(newZ);
-        renderZoneOptions(newId);
-        if (handFeedback) handFeedback.textContent = '[New zone created. Adjust coordinates & click Save]';
+      async function persistZones(zones, selectedId = '') {
+        const response = await fetch('http://127.0.0.1:8088/api/set_zones', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zones })
+        });
+        if (!response.ok) throw new Error(`Could not save targets (HTTP ${response.status})`);
+        currentZones = zones;
+        handFrame?.contentWindow?.postMessage({ type: 'SET_ZONES', zones: currentZones }, '*');
+        renderZoneOptions(selectedId);
+      }
+      zoneSelect?.addEventListener('change', () => {
+        const selected = currentZones.find(zone => zone.id === zoneSelect.value);
+        if (zoneName) zoneName.value = selected?.name || '';
+        handFrame?.contentWindow?.postMessage({ type: 'HIGHLIGHT_ZONE', zoneId: zoneSelect.value }, '*');
       });
-
+      document.getElementById('btn-add-zone')?.addEventListener('click', () => {
+        handFrame?.contentWindow?.postMessage({ type: 'ADMIN_START_DRAWING' }, '*');
+        if (handFeedback) handFeedback.textContent = '[Drag over the live feed to draw a target.]';
+      });
       document.getElementById('btn-save-zone')?.addEventListener('click', async () => {
         const selectedId = zoneSelect?.value;
-        let zone = currentZones.find(z => (z.id || '') === selectedId);
-        if (!zone && currentZones.length > 0) zone = currentZones[0];
-        if (zone) {
-          zone.name = (zoneNameIn?.value || zone.name).trim();
-          const x1 = parseFloat(zX1?.value || '0.05');
-          const y1 = parseFloat(zY1?.value || '0.15');
-          const x2 = parseFloat(zX2?.value || '0.45');
-          const y2 = parseFloat(zY2?.value || '0.50');
-          zone.x = Math.max(0, Math.min(1, Math.min(x1, x2)));
-          zone.y = Math.max(0, Math.min(1, Math.min(y1, y2)));
-          zone.w = Math.max(0.02, Math.abs(x2 - x1));
-          zone.h = Math.max(0.02, Math.abs(y2 - y1));
-          zone.points = [
-            { x: zone.x, y: zone.y },
-            { x: zone.x + zone.w, y: zone.y },
-            { x: zone.x + zone.w, y: zone.y + zone.h },
-            { x: zone.x, y: zone.y + zone.h }
-          ];
-
-          try {
-            await fetch('http://127.0.0.1:8088/api/set_zones', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ zones: currentZones })
-            });
-            iframePoint?.contentWindow?.postMessage({ type: 'SET_ZONES', zones: currentZones }, '*');
-            if (handFeedback) handFeedback.textContent = `[OK] Applied ${currentZones.length} target zones.`;
-            renderZoneOptions(zone.id);
-          } catch (err) {
-            if (handFeedback) handFeedback.textContent = `[Save error: ${err.message}]`;
-          }
-        }
+        const zones = currentZones.map(zone => zone.id === selectedId ? { ...zone, name: (zoneName?.value || zone.name).trim() || zone.name } : zone);
+        try { await persistZones(zones, selectedId); if (handFeedback) handFeedback.textContent = '[Target name saved and applied.]'; }
+        catch (err) { if (handFeedback) handFeedback.textContent = `[Save failed: ${err.message}]`; }
       });
-
       document.getElementById('btn-delete-zone')?.addEventListener('click', async () => {
         const selectedId = zoneSelect?.value;
         if (!selectedId) return;
-        currentZones = currentZones.filter(z => (z.id || '') !== selectedId);
-        try {
-          await fetch('http://127.0.0.1:8088/api/set_zones', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ zones: currentZones })
-          });
-          iframePoint?.contentWindow?.postMessage({ type: 'SET_ZONES', zones: currentZones }, '*');
-          renderZoneOptions();
-          if (handFeedback) handFeedback.textContent = '[Zone deleted and applied]';
-        } catch (err) {
-          if (handFeedback) handFeedback.textContent = `[Delete error: ${err.message}]`;
+        try { await persistZones(currentZones.filter(zone => zone.id !== selectedId)); if (handFeedback) handFeedback.textContent = '[Target deleted and applied.]'; }
+        catch (err) { if (handFeedback) handFeedback.textContent = `[Delete failed: ${err.message}]`; }
+      });
+      const adjustButton = document.getElementById('btn-adjust-targets');
+      adjustButton?.addEventListener('click', () => {
+        adjustModeEnabled = !adjustModeEnabled;
+        handFrame?.contentWindow?.postMessage({ type: 'ADMIN_TOGGLE_ADJUST' }, '*');
+        adjustButton.textContent = adjustModeEnabled ? '[ Finish Move / Resize ]' : '[ Move / Resize Targets ]';
+      });
+      window.addEventListener('message', async e => {
+        if (e.source === faceFrame?.contentWindow && e.data?.type === 'FACE_SAMPLE_CAPTURED') {
+          const pending = pendingSamples.get(e.data.requestId);
+          if (!pending) return;
+          clearTimeout(pending.timeout); pendingSamples.delete(e.data.requestId);
+          if (e.data.error || !e.data.blob) pending.reject(new Error(e.data.error || 'No image was returned.'));
+          else pending.resolve(e.data.blob);
+        } else if (e.source === faceFrame?.contentWindow && e.data?.type === 'REGISTER_RESULT') {
+          if (faceFeedback) faceFeedback.textContent = e.data.success
+            ? `[Registered ${e.data.displayName} · ${e.data.samples} samples enrolled.]`
+            : `[Registration failed: ${e.data.error || 'Unknown error'}]`;
+          if (registerButton) registerButton.disabled = false;
+          if (e.data.success) { samples.fill(null); renderSamples(); loadUsers(); }
+        } else if (e.source === handFrame?.contentWindow && e.data?.type === 'ZONES_DATA' && Array.isArray(e.data.zones)) {
+          if (e.data.adminUpdate) {
+            try { await persistZones(e.data.zones, e.data.selectedId || ''); if (handFeedback) handFeedback.textContent = '[New target saved and applied.]'; }
+            catch (err) { if (handFeedback) handFeedback.textContent = `[Save failed: ${err.message}]`; }
+          } else {
+            currentZones = e.data.zones; renderZoneOptions(e.data.selectedId || '');
+          }
         }
       });
     }
-
     // ATTEMPT TO INJECT STYLES TO SUPPRESS ANY LEGACY EMBEDDED IFRAME BADGES
     function setupIframeOverlaySuppression() {
       const iframeFace = document.getElementById('iframe-face');

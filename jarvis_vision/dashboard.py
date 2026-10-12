@@ -455,6 +455,42 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     // Start WebRTC camera stream with persistent deviceId support
     let currentVideoDeviceId = localStorage.getItem('facecam_device') || null;
     let inferenceIntervalStarted = false;
+    let cameraSelectionFailed = false;
+
+    async function publishCameraDevices(selectionFailed = false) {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices
+          .filter(device => device.kind === 'videoinput')
+          .map(device => ({ deviceId: device.deviceId, label: device.label }));
+        const activeTrack = webcam.srcObject?.getVideoTracks()[0];
+        const activeDeviceId = activeTrack?.getSettings().deviceId || currentVideoDeviceId || '';
+        window.parent?.postMessage({
+          type: 'CAMERA_DEVICES',
+          stream: 'facecam',
+          devices: videoDevices,
+          activeDeviceId: activeDeviceId,
+          selectionFailed: selectionFailed
+        }, '*');
+      } catch (err) {
+        console.warn('Could not enumerate face cameras:', err);
+      }
+    }
+
+    if (navigator.mediaDevices?.addEventListener) {
+      navigator.mediaDevices.addEventListener('devicechange', publishCameraDevices);
+    }
+
+    function onCameraReady() {
+      overlayCanvas.width = webcam.videoWidth;
+      overlayCanvas.height = webcam.videoHeight;
+      const activeTrack = webcam.srcObject?.getVideoTracks()[0];
+      currentVideoDeviceId = activeTrack?.getSettings().deviceId || currentVideoDeviceId;
+      if (currentVideoDeviceId) localStorage.setItem('facecam_device', currentVideoDeviceId);
+      publishCameraDevices(cameraSelectionFailed);
+      cameraSelectionFailed = false;
+      if (!inferenceIntervalStarted) startInferenceLoop();
+    }
 
     async function initCamera(deviceId = null) {
       try {
@@ -481,30 +517,20 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           video: videoConstraints
         });
         webcam.srcObject = stream;
-        webcam.onloadedmetadata = () => {
-          overlayCanvas.width = webcam.videoWidth;
-          overlayCanvas.height = webcam.videoHeight;
-          if (!inferenceIntervalStarted) {
-            startInferenceLoop();
-          }
-        };
+        webcam.onloadedmetadata = onCameraReady;
       } catch (err) {
         console.warn('Camera access warning:', err);
         if (currentVideoDeviceId) {
           // Fallback to default user camera if exact device constraint failed
+          cameraSelectionFailed = true;
           currentVideoDeviceId = null;
+          localStorage.removeItem('facecam_device');
           try {
             const fallbackStream = await navigator.mediaDevices.getUserMedia({
               video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
             });
             webcam.srcObject = fallbackStream;
-            webcam.onloadedmetadata = () => {
-              overlayCanvas.width = webcam.videoWidth;
-              overlayCanvas.height = webcam.videoHeight;
-              if (!inferenceIntervalStarted) {
-                startInferenceLoop();
-              }
-            };
+            webcam.onloadedmetadata = onCameraReady;
           } catch (fbErr) {
             showToast('Camera access failed: ' + fbErr.message, 'error');
           }
@@ -517,37 +543,39 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     // Listen for parent window camera switch and registration commands
     window.addEventListener('message', async (e) => {
       if (!e.data) return;
-      if (e.data.type === 'CHANGE_CAMERA' || (e.data.type === 'REPOS_MEDIA_SELECT' && e.data.kind === 'videoinput')) {
+      if (e.data.type === 'ENUMERATE_CAMERAS') {
+        await publishCameraDevices();
+      } else if (e.data.type === 'CHANGE_CAMERA' || (e.data.type === 'REPOS_MEDIA_SELECT' && e.data.kind === 'videoinput')) {
         const targetId = e.data.deviceId;
         if (targetId && targetId !== currentVideoDeviceId) {
           await initCamera(targetId);
         }
-      } else if (e.data.type === 'CAPTURE_AND_REGISTER') {
-        const displayName = (e.data.displayName || 'User').trim();
-        const pronunciation = (e.data.pronunciation || '').trim();
-        const customGreeting = (e.data.customGreeting || '').trim();
-        const userId = displayName.toLowerCase().replace(/[^a-z0-9_-]/g, '_') || 'user_' + Date.now();
-
-        const snaps = [];
-        for (let i = 0; i < 3; i++) {
-          if (webcam.videoWidth) {
-            const c = document.createElement('canvas');
-            c.width = webcam.videoWidth;
-            c.height = webcam.videoHeight;
-            c.getContext('2d').drawImage(webcam, 0, 0);
-            await new Promise(r => c.toBlob(b => { if (b) snaps.push(b); r(); }, 'image/jpeg', 0.95));
-            await new Promise(r => setTimeout(r, 120));
-          }
-        }
-        if (snaps.length === 0) {
-          window.parent?.postMessage({ type: 'REGISTER_RESULT', success: false, error: 'Webcam not ready or no frames captured.' }, '*');
+      } else if (e.data.type === 'CAPTURE_FACE_SAMPLE') {
+        if (!webcam.videoWidth || !webcam.videoHeight) {
+          window.parent?.postMessage({ type: 'FACE_SAMPLE_CAPTURED', requestId: e.data.requestId, error: 'Camera is not ready.' }, '*');
           return;
         }
-
+        const canvas = document.createElement('canvas');
+        canvas.width = webcam.videoWidth;
+        canvas.height = webcam.videoHeight;
+        canvas.getContext('2d').drawImage(webcam, 0, 0);
+        canvas.toBlob(blob => {
+          window.parent?.postMessage({ type: 'FACE_SAMPLE_CAPTURED', requestId: e.data.requestId, index: e.data.index, blob }, '*');
+        }, 'image/jpeg', 0.95);
+      } else if (e.data.type === 'REGISTER_FACE_SAMPLES') {
+        const displayName = (e.data.displayName || '').trim();
+        const pronunciation = (e.data.pronunciation || '').trim();
+        const customGreeting = (e.data.customGreeting || '').trim();
+        const userId = (e.data.userId || '').trim();
+        const snaps = Array.isArray(e.data.samples) ? e.data.samples.filter(blob => blob instanceof Blob) : [];
+        if (!displayName || !userId || snaps.length !== 5) {
+          window.parent?.postMessage({ type: 'REGISTER_RESULT', success: false, error: 'Name, user ID, and all five photo samples are required.' }, '*');
+          return;
+        }
         const fd = new FormData();
         fd.append('user_id', userId);
         fd.append('display_name', displayName);
-        fd.append('role', 'visitor');
+        fd.append('role', e.data.role || 'visitor');
         fd.append('pronunciation', pronunciation);
         fd.append('custom_greeting', customGreeting);
         snaps.forEach((b, i) => fd.append('files', b, `snap_${i}.jpg`));
@@ -555,13 +583,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         try {
           const res = await fetch('/api/register', { method: 'POST', body: fd });
           const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
           window.parent?.postMessage({
             type: 'REGISTER_RESULT',
             success: true,
             userId: userId,
-            displayName: displayName,
-            pronunciation: pronunciation,
-            customGreeting: customGreeting,
+            displayName: data.display_name || displayName,
+            pronunciation: data.pronunciation || pronunciation,
+            customGreeting: data.custom_greeting || customGreeting,
             samples: data.samples_enrolled
           }, '*');
           loadGallery();
@@ -846,6 +875,17 @@ async def register_user(
     summary = engine.reload_enrolled_embeddings()
     enrolled_samples = summary.get(clean_uid, saved_count)
 
+    # A visitor can be re-enrolled while already present. Refresh the agent's
+    # cached profile so it stops using the old display name/pronunciation.
+    if presence_tracker.current_user_id == clean_uid:
+        notify_presence_event("PROFILE_UPDATED", {
+            "user_id": clean_uid,
+            "display_name": user_record.get("display_name", clean_uid),
+            "role": user_record.get("role", "visitor"),
+            "pronunciation": user_record.get("pronunciation", ""),
+            "custom_greeting": user_record.get("custom_greeting", "")
+        })
+
     return {
         "status": "success",
         "user_id": clean_uid,
@@ -853,6 +893,40 @@ async def register_user(
         "pronunciation": user_record.get("pronunciation", ""),
         "custom_greeting": user_record.get("custom_greeting", ""),
         "samples_enrolled": enrolled_samples
+    }
+
+@app.put("/api/users/{user_id}")
+async def update_user_profile(user_id: str, payload: dict):
+    """Updates a visitor's saved name and speech settings without requiring new face photos."""
+    clean_uid = user_id.strip().lower()
+    existing = db.get_user(clean_uid)
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"User {clean_uid} not found.")
+
+    user_record = db.add_or_update_user(
+        user_id=clean_uid,
+        display_name=str(payload.get("display_name", existing.get("display_name", clean_uid))),
+        role=str(payload.get("role", existing.get("role", "visitor"))),
+        pronunciation=str(payload.get("pronunciation", existing.get("pronunciation", ""))),
+        custom_greeting=str(payload.get("custom_greeting", existing.get("custom_greeting", "")))
+    )
+
+    if presence_tracker.current_user_id == clean_uid:
+        notify_presence_event("PROFILE_UPDATED", {
+            "user_id": clean_uid,
+            "display_name": user_record.get("display_name", clean_uid),
+            "role": user_record.get("role", "visitor"),
+            "pronunciation": user_record.get("pronunciation", ""),
+            "custom_greeting": user_record.get("custom_greeting", "")
+        })
+
+    return {
+        "status": "success",
+        "user_id": clean_uid,
+        "display_name": user_record.get("display_name", clean_uid),
+        "role": user_record.get("role", "visitor"),
+        "pronunciation": user_record.get("pronunciation", ""),
+        "custom_greeting": user_record.get("custom_greeting", "")
     }
 
 @app.delete("/api/users/{user_id}")

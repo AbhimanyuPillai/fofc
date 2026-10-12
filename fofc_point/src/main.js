@@ -169,13 +169,25 @@ class AeroFingerApp {
 
     // 2. Start Live Webcam
     this.loadingDetails.innerText = 'Connecting camera feed...';
+    if (navigator.mediaDevices?.addEventListener) {
+      navigator.mediaDevices.addEventListener('devicechange', () => this.populateCameraDevices());
+    }
     const savedHandDev = localStorage.getItem('handcam_device');
-    const camRes = await this.camera.startCamera(savedHandDev || null);
+    let camRes = await this.camera.startCamera(savedHandDev || null);
+    let cameraSelectionFailed = false;
+
+    if (!camRes.success && savedHandDev) {
+      console.warn('[Camera] Saved camera is unavailable; falling back to the default camera.');
+      localStorage.removeItem('handcam_device');
+      this.camera.selectedDeviceId = null;
+      camRes = await this.camera.startCamera(null);
+      cameraSelectionFailed = camRes.success;
+    }
 
     if (!camRes.success) {
       this.loadingDetails.innerHTML = `<span style="color:#ffaa00;">Please grant webcam permission.</span>`;
     } else {
-      await this.populateCameraDevices();
+      await this.populateCameraDevices(cameraSelectionFailed);
       this.setupVideoFrameCallback();
       setTimeout(() => {
         this.loadingOverlay.classList.add('hidden');
@@ -201,7 +213,7 @@ class AeroFingerApp {
     }
   }
 
-  async populateCameraDevices() {
+  async populateCameraDevices(selectionFailed = false) {
     const devices = await this.camera.getDevices();
     this.cameraSelect.innerHTML = '';
     if (devices.length === 0) {
@@ -217,6 +229,16 @@ class AeroFingerApp {
         this.cameraSelect.appendChild(opt);
       });
     }
+
+    const activeTrack = this.video.srcObject?.getVideoTracks()[0];
+    const activeDeviceId = activeTrack?.getSettings().deviceId || this.camera.selectedDeviceId || '';
+    window.parent?.postMessage({
+      type: 'CAMERA_DEVICES',
+      stream: 'handcam',
+      devices: devices.map(device => ({ deviceId: device.deviceId, label: device.label })),
+      activeDeviceId,
+      selectionFailed,
+    }, '*');
   }
 
   handleZonePointingTrigger(zone) {
@@ -482,11 +504,37 @@ class AeroFingerApp {
     // Parent window camera switch and zone management listener
     window.addEventListener('message', async (e) => {
       if (!e.data) return;
-      if (e.data.type === 'CHANGE_CAMERA' || (e.data.type === 'REPOS_MEDIA_SELECT' && e.data.kind === 'videoinput')) {
+      if (e.data.type === 'ENUMERATE_CAMERAS') {
+        await this.populateCameraDevices();
+      } else if (e.data.type === 'ADMIN_START_DRAWING') {
+        if (this.zoneManager?.isAdjustMode) {
+          this.zoneManager.setAdjustMode(false);
+          this.adjustModeBanner?.classList.add('hidden');
+          this.viewportWrapper?.classList.remove('adjust-active');
+        }
+        this.btnAddArea?.click();
+      } else if (e.data.type === 'ADMIN_TOGGLE_ADJUST') {
+        const enabled = !this.zoneManager?.isAdjustMode;
+        this.zoneManager?.setAdjustMode(enabled);
+        this.adjustModeBanner?.classList.toggle('hidden', !enabled);
+        this.viewportWrapper?.classList.toggle('adjust-active', enabled);
+        this.updateAdjustCursor();
+      } else if (e.data.type === 'ADMIN_CANCEL_DRAWING') {
+        if (this.zoneManager?.isDrawingMode) this.exitDrawingMode();
+      } else if (e.data.type === 'CHANGE_CAMERA' || (e.data.type === 'REPOS_MEDIA_SELECT' && e.data.kind === 'videoinput')) {
         const targetId = e.data.deviceId;
         if (targetId && this.camera) {
-          localStorage.setItem('handcam_device', targetId);
-          await this.camera.startCamera(targetId);
+          const result = await this.camera.startCamera(targetId);
+          if (result.success) {
+            localStorage.setItem('handcam_device', targetId);
+            await this.populateCameraDevices();
+          } else {
+            console.warn('[Camera] Selected camera could not be opened; falling back to the default camera.');
+            this.camera.selectedDeviceId = null;
+            localStorage.removeItem('handcam_device');
+            await this.camera.startCamera(null);
+            await this.populateCameraDevices(true);
+          }
         }
       } else if (e.data.type === 'SET_ZONES' || e.data.type === 'UPDATE_ZONES') {
         if (Array.isArray(e.data.zones) && this.zoneManager) {
@@ -535,6 +583,11 @@ class AeroFingerApp {
       if (this.zoneManager.isAdjustMode) {
         this.zoneManager.onAdjustMouseUp();
         this.updateAdjustCursor();
+        window.parent?.postMessage({
+          type: 'ZONES_DATA',
+          zones: this.zoneManager.zones,
+          adminUpdate: true,
+        }, '*');
         return;
       }
       if (!this.zoneManager.isDrawingMode) return;
@@ -561,6 +614,12 @@ class AeroFingerApp {
         this.pendingAreaCallback = null;
       }
       this.nameAreaModal.classList.add('hidden');
+      window.parent?.postMessage({
+        type: 'ZONES_DATA',
+        zones: this.zoneManager ? this.zoneManager.zones : [],
+        selectedId: this.zoneManager?.zones?.at(-1)?.id || '',
+        adminUpdate: true,
+      }, '*');
     });
 
     this.btnCancelNameArea.addEventListener('click', () => {
