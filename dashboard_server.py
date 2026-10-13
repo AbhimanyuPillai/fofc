@@ -313,6 +313,19 @@ async def post_set_zones(payload: dict):
 async def get_zones():
     return load_zones_config()
 
+@app.get("/api/products")
+async def get_projection_products():
+    """Expose the projection app's product catalog to the admin UI and agent."""
+    try:
+        response = requests.get("http://127.0.0.1:3000/api/products", timeout=2.0)
+        response.raise_for_status()
+        products = response.json()
+        if not isinstance(products, list):
+            raise ValueError("Projection product catalog must be a JSON array")
+        return products
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Projection product catalog unavailable: {e}")
+
 @app.post("/api/tts_preview")
 async def post_tts_preview(payload: dict):
     text = payload.get("text", "").strip()

@@ -21,6 +21,7 @@ from socketserver import ThreadingMixIn
 from faster_whisper import WhisperModel
 import audio_feedback
 import dashboard_server
+import projection_bridge
 
 # Windows CUDA / DLL directory configuration for ONNX Runtime GPU
 if sys.platform.startswith("win"):
@@ -289,10 +290,40 @@ interrupt_requested = False
 # AEROFINGER POINTING WEBSOCKET BRIDGE
 # ==========================================
 current_pointed_board = None
+current_pointed_product_id = None
 pointed_board_lock = threading.Lock()
 audio_stream_lock = threading.Lock()
 active_audio_stream = None
 capture_device = None
+
+def get_active_pointed_context() -> Optional[str]:
+    with pointed_board_lock:
+        board_name = current_pointed_board
+        product_id = current_pointed_product_id
+    if not board_name:
+        return None
+
+    product = projection_bridge.get_product(product_id)
+    if product:
+        description = str(product.get("description") or "").strip()
+        category = str(product.get("category") or "").strip()
+        details = []
+        if category:
+            details.append(f"Category: {category}.")
+        if description:
+            details.append(f"Board description: {description}")
+        product_context = " ".join(details)
+        return (
+            f"[Active Table Context: The visitor is pointing to {board_name} (product ID {product_id}). "
+            f"Use this product information as the source of truth when explaining it. {product_context} "
+            "Explain what the board helps with in plain language. Do not invent specifications. "
+            "Unless they explicitly ask about a different board, ground your answer in this board.]"
+        )
+
+    return (
+        f"[Active Table Context: The visitor is pointing to {board_name}. "
+        "Unless they explicitly ask about a different board, ground your answer in this board.]"
+    )
 
 DEVICE_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "device_config.json")
 
@@ -379,20 +410,30 @@ def switch_audio_device(device_name: str = "", device_id: str = ""):
             print(f"[AUDIO CAPTURE RESTART WARNING] Failed to switch to [{target_idx}]: {e}")
 
 async def pointing_ws_handler(websocket):
-    global current_pointed_board
+    global current_pointed_board, current_pointed_product_id
     try:
         async for message in websocket:
             try:
                 data = json.loads(message)
                 if data.get("type") == "POINTING_UPDATE":
-                    new_board = data.get("board")
+                    raw_product_id = data.get("productId")
+                    try:
+                        product_id = int(raw_product_id) if raw_product_id is not None else None
+                    except (TypeError, ValueError):
+                        product_id = None
+                    product = projection_bridge.get_product(product_id)
+                    new_board = (product or {}).get("name") or data.get("board")
                     if new_board is not None and str(new_board).strip():
                         board_str = str(new_board).strip()
                         with pointed_board_lock:
                             current_pointed_board = board_str
-                        print(f"[HARDWARE] Latched active board to: {board_str}")
+                            current_pointed_product_id = product_id
+                        id_suffix = f" (product ID {product_id})" if product_id is not None else " (no product ID)"
+                        print(f"[HARDWARE] Latched active board to: {board_str}{id_suffix}")
                         if "dashboard_server" in globals() and hasattr(dashboard_server, "set_hardware_focus"):
                             dashboard_server.set_hardware_focus(board_str)
+                        if product_id is not None:
+                            projection_bridge.point_to_product(product_id)
                     # When board is None (hand pulled back), DO NOT reset; preserve latched state
                 elif data.get("event") == "set_audio_device" or data.get("type") == "SET_AUDIO_DEVICE":
                     dev_id = data.get("device_id", "")
@@ -1024,6 +1065,8 @@ def stream_brain_to_voice(user_text: str):
 def main():
     global is_agent_speaking, interrupt_requested, state, last_interaction_time
 
+    projection_bridge.start()
+
     try:
         try:
             import subprocess
@@ -1162,15 +1205,9 @@ def main():
                 is_speaking_now = False
                 silence_frames = 0
 
-                with pointed_board_lock:
-                    pointed_board = current_pointed_board
-
-                if pointed_board:
-                    prompt_with_context = (
-                        f"{typed_msg}\n"
-                        f"[Active Table Context: The user previously selected/pointed to the {pointed_board}. "
-                        f"Unless they explicitly ask about a different board, ground your answer in this board.]"
-                    )
+                pointed_context = get_active_pointed_context()
+                if pointed_context:
+                    prompt_with_context = f"{typed_msg}\n{pointed_context}"
                 else:
                     prompt_with_context = typed_msg
 
@@ -1459,15 +1496,9 @@ def main():
                         print(f"\n[YOU]: {user_text}")
                         dashboard_server.broadcast_transcript("YOU", user_text)
 
-                        with pointed_board_lock:
-                            pointed_board = current_pointed_board
-
-                        if pointed_board:
-                            prompt_with_context = (
-                                f"{user_text}\n"
-                                f"[Active Table Context: The user previously selected/pointed to the {pointed_board}. "
-                                f"Unless they explicitly ask about a different board, ground your answer in this board.]"
-                            )
+                        pointed_context = get_active_pointed_context()
+                        if pointed_context:
+                            prompt_with_context = f"{user_text}\n{pointed_context}"
                         else:
                             prompt_with_context = user_text
 

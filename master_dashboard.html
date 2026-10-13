@@ -799,11 +799,14 @@
               </div>
             </div>
             <div class="admin-row">
-              <label class="admin-label">Label / Name Target</label>
-              <input type="text" id="admin-zone-name" class="admin-input" placeholder="e.g. ESP32, Jetson, Nucleo">
+              <label class="admin-label" for="admin-zone-product">Product ID</label>
+              <select id="admin-zone-product" class="admin-select">
+                <option value="">Loading products…</option>
+              </select>
+              <p class="admin-help">Assign this target to a product. Its ID is sent to the agent and projection software.</p>
             </div>
             <div class="admin-row admin-actions-row">
-              <button id="btn-save-zone" class="admin-btn admin-btn-primary" type="button">[ Save Target Name ]</button>
+              <button id="btn-save-zone" class="admin-btn admin-btn-primary" type="button">[ Save Product Assignment ]</button>
               <button id="btn-adjust-targets" class="admin-btn" type="button">[ Move / Resize Targets ]</button>
               <button id="btn-delete-zone" class="admin-btn admin-btn-danger" type="button">[ Delete Area ]</button>
               <span id="admin-hand-feedback" class="admin-feedback"></span>
@@ -1728,22 +1731,48 @@
       }
 
       const zoneSelect = document.getElementById('admin-zone-select');
-      const zoneName = document.getElementById('admin-zone-name');
+      const productSelect = document.getElementById('admin-zone-product');
+      let projectionProducts = [];
+      function productForId(id) {
+        return projectionProducts.find(product => String(product.id) === String(id));
+      }
+      async function loadProjectionProducts() {
+        if (!productSelect) return;
+        try {
+          const response = await fetch('http://127.0.0.1:8088/api/products');
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          projectionProducts = await response.json();
+          productSelect.innerHTML = '<option value="">Select a product ID…</option>';
+          projectionProducts.forEach(product => {
+            const option = document.createElement('option');
+            option.value = String(product.id);
+            option.textContent = `${product.id} · ${product.name}`;
+            productSelect.appendChild(option);
+          });
+          const selected = currentZones.find(zone => zone.id === zoneSelect?.value);
+          if (selected?.productId != null) productSelect.value = String(selected.productId);
+        } catch (err) {
+          productSelect.innerHTML = '<option value="">Product catalog unavailable</option>';
+          if (handFeedback) handFeedback.textContent = `[Could not load products: ${err.message}]`;
+        }
+      }
       function renderZoneOptions(selectedId = '') {
         if (!zoneSelect) return;
         zoneSelect.innerHTML = '';
         currentZones.forEach((zone, index) => {
-          const option = document.createElement('option'); option.value = zone.id || `zone_${index}`; option.textContent = zone.name || `Target ${index + 1}`; zoneSelect.appendChild(option);
+          const product = productForId(zone.productId);
+          const option = document.createElement('option'); option.value = zone.id || `zone_${index}`; option.textContent = `${product ? `${product.id} · ${product.name}` : 'Unassigned'} (${zone.id || `Target ${index + 1}`})`; zoneSelect.appendChild(option);
         });
         if (selectedId) zoneSelect.value = selectedId;
         const selected = currentZones.find(zone => zone.id === zoneSelect.value) || currentZones[0];
-        if (zoneName) zoneName.value = selected?.name || '';
+        if (productSelect) productSelect.value = selected?.productId == null ? '' : String(selected.productId);
       }
       async function loadZones() {
         try {
           const response = await fetch('http://127.0.0.1:8088/api/zones');
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           currentZones = await response.json();
+          await loadProjectionProducts();
           renderZoneOptions();
           handFrame?.contentWindow?.postMessage({ type: 'SET_ZONES', zones: currentZones }, '*');
         } catch (err) { handFrame?.contentWindow?.postMessage({ type: 'GET_ZONES' }, '*'); }
@@ -1759,7 +1788,7 @@
       }
       zoneSelect?.addEventListener('change', () => {
         const selected = currentZones.find(zone => zone.id === zoneSelect.value);
-        if (zoneName) zoneName.value = selected?.name || '';
+        if (productSelect) productSelect.value = selected?.productId == null ? '' : String(selected.productId);
         handFrame?.contentWindow?.postMessage({ type: 'HIGHLIGHT_ZONE', zoneId: zoneSelect.value }, '*');
       });
       document.getElementById('btn-add-zone')?.addEventListener('click', () => {
@@ -1768,8 +1797,16 @@
       });
       document.getElementById('btn-save-zone')?.addEventListener('click', async () => {
         const selectedId = zoneSelect?.value;
-        const zones = currentZones.map(zone => zone.id === selectedId ? { ...zone, name: (zoneName?.value || zone.name).trim() || zone.name } : zone);
-        try { await persistZones(zones, selectedId); if (handFeedback) handFeedback.textContent = '[Target name saved and applied.]'; }
+        const productId = Number(productSelect?.value);
+        if (!selectedId || !Number.isInteger(productId) || !productForId(productId)) {
+          if (handFeedback) handFeedback.textContent = '[Choose a valid product ID before saving.]';
+          return;
+        }
+        const product = productForId(productId);
+        const zones = currentZones.map(zone => zone.id === selectedId
+          ? { ...zone, productId, name: product.name, voiceMessage: '' }
+          : zone);
+        try { await persistZones(zones, selectedId); if (handFeedback) handFeedback.textContent = `[Product ${productId} assigned and applied.]`; }
         catch (err) { if (handFeedback) handFeedback.textContent = `[Save failed: ${err.message}]`; }
       });
       document.getElementById('btn-delete-zone')?.addEventListener('click', async () => {

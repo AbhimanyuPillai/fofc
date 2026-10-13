@@ -39,11 +39,14 @@ class AgentBridge {
     this.ws.onclose = () => setTimeout(() => this.connect(), 1500);
     this.ws.onerror = () => { };
   }
-  sendTargetUpdate(boardName, isStable) {
+  sendTargetUpdate(productId, boardName, isStable) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
         type: 'POINTING_UPDATE',
         board: boardName,
+        productId: productId !== null && productId !== undefined && Number.isInteger(Number(productId))
+          ? Number(productId)
+          : null,
         stable: isStable,
         timestamp: Date.now()
       }));
@@ -242,16 +245,19 @@ class AeroFingerApp {
   }
 
   handleZonePointingTrigger(zone) {
-    this.promptAreaName.innerText = zone.name.toUpperCase();
+    const productId = Number(zone.productId);
+    const hasProduct = Number.isInteger(productId) && productId > 0;
+    const targetName = hasProduct ? (zone.name || `Product ${productId}`) : 'UNASSIGNED TARGET';
+    this.promptAreaName.innerText = targetName.toUpperCase();
     const dwellSeconds = (this.zoneManager.dwellDurationMs / 1000).toFixed(1);
     this.promptAreaMeta.innerText = `Pointed for ${dwellSeconds}s`;
 
     this.pointingPromptBanner.classList.remove('hidden');
 
     // Stream stable target update to Jarvis live agent
-    if (this.bridge) {
-      this.bridge.sendTargetUpdate(zone.name, true);
-      this.lastReportedBoard = zone.name;
+    if (this.bridge && hasProduct) {
+      this.bridge.sendTargetUpdate(productId, targetName, true);
+      this.lastReportedBoard = String(zone.id || productId);
     }
 
     if (this.promptTimer) clearTimeout(this.promptTimer);
@@ -375,7 +381,7 @@ class AeroFingerApp {
     // WebSocket Telemetry: when pointing ray leaves all zones or no pointing posture is active
     if ((!pointingRay || !dwellState || !dwellState.zone) && this.lastReportedBoard !== null) {
       if (this.bridge) {
-        this.bridge.sendTargetUpdate(null, false);
+        this.bridge.sendTargetUpdate(null, null, false);
       }
       this.lastReportedBoard = null;
     }
@@ -820,6 +826,17 @@ class AeroFingerApp {
 
   openNameAreaModal(newZone, saveCallback) {
     this.exitDrawingMode();
+    if (window.self !== window.top && !this.zoneManager.zones.includes(newZone)) {
+      newZone.productId = null;
+      saveCallback('Unassigned target', '');
+      window.parent?.postMessage({
+        type: 'ZONES_DATA',
+        zones: this.zoneManager.zones,
+        selectedId: newZone.id,
+        adminUpdate: true,
+      }, '*');
+      return;
+    }
     this.pendingAreaCallback = saveCallback;
     this.inputAreaName.value = newZone.name || '';
     if (this.inputAreaVoice) {

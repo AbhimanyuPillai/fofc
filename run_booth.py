@@ -103,17 +103,51 @@ class MasterShellRequestHandler(SimpleHTTPRequestHandler):
         else:
             super().do_GET()
 
+def _fofc_point_bundle_is_stale(dist_index: str, project_dir: str) -> bool:
+    """Return true when point-app sources/config are newer than the served bundle."""
+    if not os.path.exists(dist_index):
+        return True
+
+    bundle_mtime = os.path.getmtime(dist_index)
+    source_paths = [
+        os.path.join(project_dir, "src"),
+        os.path.join(project_dir, "public"),
+        os.path.join(project_dir, "index.html"),
+        os.path.join(project_dir, "package.json"),
+        os.path.join(project_dir, "package-lock.json"),
+        os.path.join(project_dir, "vite.config.js"),
+        os.path.join(project_dir, "vite.config.ts"),
+    ]
+
+    for source_path in source_paths:
+        if not os.path.exists(source_path):
+            continue
+        if os.path.isfile(source_path):
+            if os.path.getmtime(source_path) > bundle_mtime:
+                return True
+            continue
+        for root, _, filenames in os.walk(source_path):
+            for filename in filenames:
+                try:
+                    if os.path.getmtime(os.path.join(root, filename)) > bundle_mtime:
+                        return True
+                except OSError:
+                    continue
+    return False
+
+
 def start_fofc_server(port: int = 5173):
-    """Starts static server for fofc_point/dist on port 5173."""
-    dist_index = os.path.join(WORKSPACE_DIR, "fofc_point", "dist", "index.html")
-    if os.path.exists(dist_index):
-        print("[ORCHESTRATOR] Verified fofc_point dist bundle exists. Skipping build.")
+    """Build stale point-app sources, then serve fofc_point/dist on port 5173."""
+    project_dir = os.path.join(WORKSPACE_DIR, "fofc_point")
+    dist_index = os.path.join(project_dir, "dist", "index.html")
+    if not _fofc_point_bundle_is_stale(dist_index, project_dir):
+        print("[ORCHESTRATOR] fofc_point dist bundle is current. Skipping build.")
     else:
-        print("[ORCHESTRATOR] dist missing, running npm build...")
+        print("[ORCHESTRATOR] Point-app sources changed or dist is missing; rebuilding fofc_point...")
         try:
-            subprocess.run(["npm", "run", "build"], cwd=os.path.join(WORKSPACE_DIR, "fofc_point"), shell=True, check=True)
+            subprocess.run(["npm", "run", "build"], cwd=project_dir, shell=True, check=True)
         except Exception as e:
-            print(f"[ORCHESTRATOR WARNING] npm run build failed ({e}). Proceeding with available assets.")
+            print(f"[ORCHESTRATOR WARNING] npm run build failed ({e}). Proceeding with available assets; point-app changes may not be active.")
 
     server = ThreadedHTTPServer(("127.0.0.1", port), FofcStaticRequestHandler)
     active_http_servers.append(server)
