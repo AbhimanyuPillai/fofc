@@ -1,0 +1,20 @@
+# Ubuntu-local environments, generated frontend assets, and downloaded models
+.venv/
+__pycache__/
+fofc_point/node_modules/
+fofc_point/dist/
+jarvis_vision/models/
+
+# Large Kokoro inference assets belong in local deployment storage, not Git.
+# These explicit rules override the root .gitignore's Kokoro/voice exceptions.
+/kokoro-v0_19.onnx
+/voices.bin
+/voices.json
+
+# Runtime device settings and enrolled biometric data are machine-local
+camera_config.json
+device_config.json
+jarvis_vision/data/users.json
+jarvis_vision/data/faces/*
+!jarvis_vision/data/faces/.gitkeep
+

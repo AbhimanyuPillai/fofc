@@ -2,6 +2,7 @@
 
 import os
 import queue
+import re
 import threading
 import time
 from typing import Any, Dict, Optional
@@ -58,6 +59,60 @@ def get_product(product_id: Optional[int]) -> Optional[Dict[str, Any]]:
     with _catalog_lock:
         product = _catalog_by_id.get(product_id)
         return dict(product) if product else None
+
+
+def _product_aliases(product: Dict[str, Any]) -> set[str]:
+    """Build conservative spoken/text aliases from live product metadata."""
+    name = str(product.get("name") or "").strip()
+    aliases = {name}
+    extra = product.get("aliases", [])
+    if isinstance(extra, str):
+        extra = [extra]
+    if isinstance(extra, list):
+        aliases.update(str(alias).strip() for alias in extra if alias)
+    # Match punctuation-free forms such as SMART#C -> SMART C and One-Sync -> One Sync.
+    aliases.add(re.sub(r"[^a-z0-9]+", " ", name.lower()).strip())
+    compact = re.sub(r"[^a-z0-9]+", "", name.lower())
+    if len(compact) >= 5:
+        aliases.add(compact)
+    # Spoken product-name variants commonly produced by ASR.
+    normalized = re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
+    if normalized == "one sync":
+        aliases.update({"onesync", "1 sync", "1sync", "1 one sync"})
+    return {re.sub(r"\s+", " ", alias.lower()).strip() for alias in aliases if alias}
+
+
+def find_product_by_text(text: str) -> Optional[Dict[str, Any]]:
+    """Return a product only when user text identifies exactly one catalog item."""
+    if not text:
+        return None
+    with _catalog_lock:
+        products = [dict(product) for product in _catalog_by_id.values()]
+    if not products:
+        refresh_product_catalog()
+        with _catalog_lock:
+            products = [dict(product) for product in _catalog_by_id.values()]
+
+    normalized_text = re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+    compact_text = re.sub(r"[^a-z0-9]+", "", text.lower())
+    matches: Dict[int, Dict[str, Any]] = {}
+    for product in products:
+        try:
+            product_id = int(product["id"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        for alias in _product_aliases(product):
+            alias_words = re.sub(r"[^a-z0-9]+", " ", alias).strip()
+            if not alias_words:
+                continue
+            if re.search(rf"(?<![a-z0-9]){re.escape(alias_words)}(?![a-z0-9])", normalized_text):
+                matches[product_id] = product
+                break
+            compact_alias = re.sub(r"[^a-z0-9]+", "", alias)
+            if len(compact_alias) >= 5 and compact_alias in compact_text:
+                matches[product_id] = product
+                break
+    return next(iter(matches.values())) if len(matches) == 1 else None
 
 
 def _catalog_worker() -> None:

@@ -1,0 +1,1927 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>REPOS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --bg-root: #000000;
+      --bg-panel: #050505;
+      --bg-card: #080808;
+      --bg-control: #0d0d0d;
+      --border-subtle: #161616;
+      --border-mid: #222222;
+      --border-active: #333333;
+      --text-main: #e5e5e5;
+      --text-secondary: #888888;
+      --text-muted: #666666;
+      --text-dim: #444444;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100vh;
+      overflow: hidden;
+      background: var(--bg-root);
+      color: var(--text-main);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* TOP HEADER: MINIMALIST BRAND ONLY */
+    header {
+      height: 48px;
+      min-height: 48px;
+      padding: 0 1.25rem;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-root);
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      z-index: 100;
+    }
+
+    .brand-section {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+    }
+
+    .brand-icon {
+      width: 26px;
+      height: 26px;
+      border-radius: 4px;
+      background: var(--bg-control);
+      border: 1px solid var(--border-mid);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .brand-icon svg {
+      width: 14px;
+      height: 14px;
+      fill: none;
+      stroke: var(--text-main);
+      stroke-width: 1.8;
+    }
+
+    .brand-title {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.92rem;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      color: var(--text-main);
+      text-transform: uppercase;
+    }
+
+    /* MAIN CONTAINER */
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 48px);
+      padding: 0.85rem 1.25rem 0.85rem 1.25rem;
+      gap: 0.85rem;
+      overflow: hidden;
+      background: var(--bg-root);
+    }
+
+    /* TOP ROW: DUAL VIDEO PANES (40% / 60%) */
+    .top-panes-row {
+      display: flex;
+      height: 56%;
+      min-height: 280px;
+      gap: 0.85rem;
+      width: 100%;
+    }
+
+    .pane-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    .top-left-pane {
+      flex: 0 0 calc(40% - 0.425rem);
+      max-width: calc(40% - 0.425rem);
+    }
+
+    .top-right-pane {
+      flex: 0 0 calc(60% - 0.425rem);
+      max-width: calc(60% - 0.425rem);
+    }
+
+    .pane-header {
+      height: 38px;
+      min-height: 38px;
+      padding: 0 0.85rem;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .pane-title {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      text-transform: uppercase;
+    }
+
+    .pane-title svg {
+      width: 14px;
+      height: 14px;
+      stroke: var(--text-secondary);
+    }
+
+    .pane-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+
+    /* DECOUPLED DEVICE SELECTORS */
+    .media-select {
+      background: #0d0d0d;
+      border: 1px solid #222222;
+      color: #a0a0a0;
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      outline: none;
+      font-family: 'JetBrains Mono', monospace;
+      cursor: pointer;
+      max-width: 135px;
+      transition: border-color 0.15s ease, color 0.15s ease;
+    }
+
+    .media-select:hover,
+    .media-select:focus {
+      border-color: #333333;
+      color: #e5e5e5;
+    }
+
+    .media-select option {
+      background: #0d0d0d;
+      color: #e5e5e5;
+    }
+
+    /* SUBTLE COLLAPSIBLE ADMIN CONTROLS */
+    .admin-toggle-btn {
+      background: transparent;
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      padding: 3px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .admin-toggle-btn:hover {
+      color: var(--text-main);
+      border-color: var(--border-mid);
+      background: #0d0d0d;
+    }
+
+    .admin-toggle-btn.active {
+      color: #ffffff;
+      border-color: #444444;
+      background: #141414;
+    }
+
+    .admin-drawer {
+      background: #040404;
+      border-bottom: 1px solid var(--border-subtle);
+      animation: fadeIn 0.15s ease-out;
+      overflow: hidden;
+      z-index: 15;
+    }
+
+    .admin-drawer-inner {
+      padding: 0.65rem 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+
+    .admin-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .admin-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.64rem;
+      color: #777777;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .admin-input, .admin-select {
+      background: #0a0a0a;
+      border: 1px solid #1a1a1a;
+      color: #e5e5e5;
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 0.75rem;
+      padding: 4px 8px;
+      border-radius: 3px;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+
+    .admin-input:focus, .admin-select:focus {
+      border-color: #444444;
+    }
+
+    .input-with-action {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .input-with-action .admin-input {
+      flex: 1;
+    }
+
+    .admin-btn {
+      background: #0d0d0d;
+      border: 1px solid #222222;
+      color: #cccccc;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      padding: 4px 10px;
+      border-radius: 3px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+    }
+
+    .admin-btn:hover {
+      background: #161616;
+      color: #ffffff;
+      border-color: #444444;
+    }
+
+    .admin-btn-primary {
+      background: #141414;
+      border-color: #333333;
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    .admin-btn-primary:hover {
+      background: #1f1f1f;
+      border-color: #555555;
+    }
+
+    .admin-btn-danger {
+      background: #140808;
+      border-color: #3a1515;
+      color: #fb7185;
+    }
+
+    .admin-btn-danger:hover {
+      background: #240c0c;
+      border-color: #5c1e1e;
+    }
+
+    .coords-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.4rem;
+    }
+
+    .coord-item {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      color: #888888;
+    }
+
+    .coord-input {
+      width: 100%;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 3px 6px;
+    }
+
+    .admin-actions-row {
+      flex-direction: row;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.2rem;
+    }
+
+    .admin-feedback {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      color: #888888;
+    }
+
+    .admin-workspace {
+      position: fixed;
+      inset: 0;
+      z-index: 500;
+      display: none;
+      flex-direction: column;
+      background: #000;
+      padding: 1rem 1.25rem;
+      gap: 0.8rem;
+    }
+
+    .admin-workspace.open { display: flex; }
+    .admin-workspace-header { display:flex; align-items:center; gap:1rem; min-height:42px; border-bottom:1px solid #1e1e1e; padding-bottom:.65rem; }
+    .admin-workspace-title { font-size:.85rem; letter-spacing:.12em; font-weight:700; }
+    .admin-workspace-tabs { display:flex; gap:.45rem; margin-left:auto; }
+    .admin-workspace-body { display:none; flex:1; min-height:0; gap:.9rem; }
+    .admin-workspace-body.active { display:grid; grid-template-columns:minmax(0, 1.2fr) minmax(340px, .8fr); }
+    .admin-live-column, .admin-tools-column { min-width:0; min-height:0; display:flex; flex-direction:column; gap:.75rem; }
+    .admin-live-column > [id$="-feed-slot"] { display:flex; flex:0 0 auto; width:100%; min-height:0; }
+    .admin-live-column .iframe-container { flex:1; min-height:260px; border:1px solid #1e1e1e; border-radius:6px; }
+    .admin-workspace .admin-drawer { display:block !important; border:1px solid #1e1e1e; border-radius:6px; overflow:auto; }
+    .admin-workspace .admin-actions-row { flex-wrap:wrap; }
+    .admin-tools-column { overflow:auto; }
+    .admin-section-heading { font-size:.72rem; color:#aaa; letter-spacing:.08em; text-transform:uppercase; margin:.2rem 0; }
+    .face-sample-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:.5rem; }
+    .face-sample { position:relative; aspect-ratio:4/3; background:#080808; border:1px solid #222; border-radius:4px; overflow:hidden; }
+    .face-sample img { width:100%; height:100%; object-fit:cover; display:block; }
+    .face-sample-label { position:absolute; left:4px; bottom:4px; padding:2px 5px; background:#000c; font: .62rem 'JetBrains Mono',monospace; }
+    .face-sample-actions { position:absolute; top:3px; right:3px; display:flex; gap:3px; }
+    .face-sample-actions button { border:1px solid #333; background:#050505eF; color:#eee; border-radius:3px; cursor:pointer; padding:2px 5px; font-size:.62rem; }
+    .admin-user-list { overflow:auto; display:flex; flex-direction:column; gap:.4rem; max-height:28vh; }
+    .admin-user-row { display:flex; justify-content:space-between; align-items:center; gap:.8rem; padding:.55rem .65rem; border:1px solid #1e1e1e; background:#050505; border-radius:4px; }
+    .admin-user-meta { color:#777; font-size:.68rem; margin-top:3px; }
+    .admin-help { color:#777; font-size:.72rem; line-height:1.5; }
+    .admin-workspace .admin-input, .admin-workspace .admin-select { min-height:32px; }
+    @media (max-width: 850px) {
+      .admin-workspace-body.active { grid-template-columns:1fr; overflow:auto; }
+      .admin-live-column { min-height:40vh; }
+      .face-sample-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    }
+
+    .iframe-container {
+      flex: 1;
+      width: 100%;
+      min-height: 0;
+      position: relative;
+      background: #000000;
+      overflow: hidden;
+    }
+
+    .feed-iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+      background: #000000;
+      overflow: hidden;
+    }
+
+    /* BOTTOM PANE: HARDWARE TARGET & TERMINAL */
+    .bottom-pane {
+      flex: 1;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* SINGLE ACTIVE TARGET BAR */
+    .active-target-bar {
+      padding: 0.45rem 0.85rem;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      animation: fadeIn 0.15s ease-out;
+    }
+
+    .active-target-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border-mid);
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+    }
+
+    .active-target-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--text-main);
+    }
+
+    .active-target-name {
+      color: var(--text-main);
+      font-weight: 600;
+    }
+
+    .active-target-tag {
+      color: var(--text-muted);
+      font-size: 0.65rem;
+      padding-left: 6px;
+      border-left: 1px solid var(--border-subtle);
+    }
+
+    .active-target-status {
+      color: var(--text-secondary);
+      font-weight: 500;
+      letter-spacing: 0.05em;
+    }
+
+    /* TERMINAL & DIALOGUE CONSOLE */
+    .terminal-body {
+      flex: 1;
+      background: #000000;
+      padding: 0.85rem 1.25rem;
+      overflow-y: auto;
+      overflow-x: hidden;
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 0.82rem;
+      line-height: 1.5;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    /* Custom Scrollbar */
+    .terminal-body::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    .terminal-body::-webkit-scrollbar-track {
+      background: #000000;
+    }
+
+    .terminal-body::-webkit-scrollbar-thumb {
+      background: #1c1c1c;
+      border-radius: 3px;
+    }
+
+    .terminal-body::-webkit-scrollbar-thumb:hover {
+      background: #2a2a2a;
+    }
+
+    /* Dialogue Message Cards */
+    .dialogue-msg {
+      display: flex;
+      flex-direction: column;
+      max-width: 90%;
+      padding: 0.55rem 0.85rem;
+      border-radius: 4px;
+      animation: fadeIn 0.15s ease-out;
+      position: relative;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(2px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .dialogue-msg.msg-user {
+      align-self: flex-start;
+      background: #080808;
+      border: 1px solid var(--border-subtle);
+      border-left: 2px solid #555555;
+    }
+
+    .dialogue-msg.msg-user .msg-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.2rem;
+    }
+
+    .dialogue-msg.msg-user .msg-sender-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .dialogue-msg.msg-user .msg-time {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      color: var(--text-dim);
+    }
+
+    .dialogue-msg.msg-user .msg-body {
+      color: #d4d4d4;
+      font-size: 0.84rem;
+      line-height: 1.45;
+    }
+
+    .dialogue-msg.msg-repos {
+      align-self: flex-start;
+      background: #080808;
+      border: 1px solid var(--border-mid);
+      border-left: 2px solid var(--text-secondary);
+    }
+
+    .dialogue-msg.msg-repos .msg-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.2rem;
+    }
+
+    .dialogue-msg.msg-repos .msg-sender-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--text-main);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .dialogue-msg.msg-repos .msg-time {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      color: var(--text-dim);
+    }
+
+    .dialogue-msg.msg-repos .msg-body {
+      color: var(--text-main);
+      font-size: 0.84rem;
+      line-height: 1.45;
+    }
+
+    /* Muted Status Pill Badges Row */
+    .status-pill-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 2px 0;
+      animation: fadeIn 0.15s ease-out;
+    }
+
+    .dialogue-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 500;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+    }
+
+    .dialogue-pill .pill-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--text-dim);
+    }
+
+    .dialogue-pill.pill-listening {
+      border-color: var(--border-mid);
+      color: var(--text-main);
+    }
+
+    .dialogue-pill.pill-listening .pill-dot {
+      background: var(--text-main);
+    }
+
+    .dialogue-pill.pill-speaking {
+      border-color: var(--border-active);
+      color: #ffffff;
+    }
+
+    .dialogue-pill.pill-speaking .pill-dot {
+      background: #ffffff;
+    }
+
+    .dialogue-pill.pill-thinking {
+      border-color: var(--border-mid);
+      color: var(--text-secondary);
+    }
+
+    .dialogue-pill.pill-thinking .pill-dot {
+      background: var(--text-secondary);
+    }
+
+    .dialogue-pill.pill-target {
+      border-color: var(--border-mid);
+      color: var(--text-main);
+    }
+
+    .dialogue-pill.pill-target .pill-dot {
+      background: var(--text-secondary);
+    }
+
+    .dialogue-pill.pill-system {
+      border-color: var(--border-subtle);
+      color: var(--text-muted);
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 900px) {
+      .top-panes-row {
+        flex-direction: column;
+        height: auto;
+      }
+
+      .top-left-pane,
+      .top-right-pane {
+        flex: 1 1 100%;
+        max-width: 100%;
+        height: 260px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- HEADER -->
+  <header>
+    <div class="brand-section">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+        </svg>
+      </div>
+      <div class="brand-title">REPOS</div>
+    </div>
+  </header>
+
+  <!-- 3-PANE MASTER LAYOUT -->
+  <main>
+    <!-- TOP ROW (40% / 60% DUAL VIDEO HUDS) -->
+    <div class="top-panes-row">
+      <!-- Top-Left Pane (40% width): FACECAM -->
+      <div class="pane-card top-left-pane">
+        <div class="pane-header">
+          <div class="pane-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <circle cx="12" cy="7" r="4"></circle>
+              <path d="M5.5 21a8.38 8.38 0 0 1 13 0"></path>
+            </svg>
+            FACECAM
+          </div>
+          <div class="pane-controls">
+            <button id="toggle-admin-face" class="admin-toggle-btn" type="button" title="User registration and phonetic override controls">[ Edit Admin Options ]</button>
+            <select id="cam-select-1" class="media-select" aria-label="FACECAM Camera">
+              <option value="">Camera</option>
+            </select>
+            <select id="mic-select-1" class="media-select" aria-label="FACECAM Microphone">
+              <option value="">Microphone</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Collapsible Admin Panel: FACECAM -->
+        <div id="admin-drawer-face" class="admin-drawer" style="display: none;">
+          <div class="admin-drawer-inner">
+            <div class="admin-row">
+              <label class="admin-label">User ID</label>
+              <input type="text" id="admin-face-user-id" class="admin-input" placeholder="Generated from name if blank">
+            </div>
+            <div class="admin-row">
+              <label class="admin-label">Display Name</label>
+              <input type="text" id="admin-face-name" class="admin-input" placeholder="e.g. Madhur">
+            </div>
+            <div class="admin-row">
+              <label class="admin-label">Role</label>
+              <select id="admin-face-role" class="admin-select"><option value="visitor">Visitor</option><option value="staff">Staff</option></select>
+            </div>
+            <div class="admin-row">
+              <label class="admin-label">Pronunciation Key / Phonetic Override</label>
+              <div class="input-with-action">
+                <input type="text" id="admin-face-pronunciation" class="admin-input" placeholder="e.g. Maa-dhoor">
+                <button id="btn-test-pronunciation" class="admin-btn" type="button">[ Test Pronunciation / Play ]</button>
+              </div>
+            </div>
+            <div class="admin-row">
+              <label class="admin-label">Custom Greeting Message</label>
+              <input type="text" id="admin-face-greeting" class="admin-input" placeholder="e.g. Hey Madhur! Good to see you.">
+            </div>
+            <div class="admin-row admin-actions-row">
+              <button id="btn-new-face-user" class="admin-btn" type="button">[ New User ]</button>
+              <button id="btn-update-face-profile" class="admin-btn" type="button" disabled>[ Update Profile ]</button>
+            <button id="btn-capture-face" class="admin-btn" type="button">[ Capture 5 Samples ]</button>
+            <button id="btn-register-face" class="admin-btn admin-btn-primary" type="button" disabled>[ Confirm & Register ]</button>
+              <span id="admin-face-feedback" class="admin-feedback"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="iframe-container">
+          <iframe id="iframe-face" class="feed-iframe" src="http://127.0.0.1:8088/?embedded=true" scrolling="no"
+            allow="camera; microphone"></iframe>
+        </div>
+      </div>
+
+      <!-- Top-Right Pane (60% width): HANDCAM -->
+      <div class="pane-card top-right-pane">
+        <div class="pane-header">
+          <div class="pane-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path>
+              <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path>
+              <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path>
+              <path
+                d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15">
+              </path>
+            </svg>
+            HANDCAM
+          </div>
+          <div class="pane-controls">
+            <button id="toggle-admin-hand" class="admin-toggle-btn" type="button" title="Interactive target bounding box configuration suite">[ Edit Admin Options ]</button>
+            <select id="cam-select-2" class="media-select" aria-label="HANDCAM Camera">
+              <option value="">Camera</option>
+            </select>
+            <select id="mic-select-2" class="media-select" aria-label="HANDCAM Microphone">
+              <option value="">Microphone</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Collapsible Admin Panel: HANDCAM -->
+        <div id="admin-drawer-hand" class="admin-drawer" style="display: none;">
+          <div class="admin-drawer-inner">
+            <div class="admin-row">
+              <label class="admin-label">Target</label>
+              <div class="input-with-action">
+                <select id="admin-zone-select" class="admin-select" style="flex: 1;">
+                </select>
+                <button id="btn-add-zone" class="admin-btn" type="button">[ Draw on Feed ]</button>
+              </div>
+            </div>
+            <div class="admin-row">
+              <label class="admin-label" for="admin-zone-product">Product ID</label>
+              <select id="admin-zone-product" class="admin-select">
+                <option value="">Loading products…</option>
+              </select>
+              <p class="admin-help">Assign this target to a product. Its ID is sent to the agent and projection software.</p>
+            </div>
+            <div class="admin-row admin-actions-row">
+              <button id="btn-save-zone" class="admin-btn admin-btn-primary" type="button">[ Save Product Assignment ]</button>
+              <button id="btn-adjust-targets" class="admin-btn" type="button">[ Move / Resize Targets ]</button>
+              <button id="btn-delete-zone" class="admin-btn admin-btn-danger" type="button">[ Delete Area ]</button>
+              <span id="admin-hand-feedback" class="admin-feedback"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="iframe-container">
+          <iframe id="iframe-point" class="feed-iframe" src="http://127.0.0.1:5173/?embedded=true" scrolling="no"
+            allow="camera; microphone"></iframe>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOTTOM PANE (FULL WIDTH): ACTIVE TARGET & DIALOGUE CONSOLE -->
+    <div class="bottom-pane">
+      <!-- Minimal Single Active Target Display -->
+      <div id="active-target-bar" class="active-target-bar" style="display: none;">
+        <div class="active-target-badge">
+          <span class="active-target-dot"></span>
+          <span id="active-target-name" class="active-target-name"></span>
+          <span id="active-target-tag" class="active-target-tag"></span>
+          <span class="active-target-status">[LATCHED]</span>
+        </div>
+      </div>
+
+      <!-- Real-Time Dialogue Console & Telemetry Feed -->
+      <div id="terminal-body" class="terminal-body">
+        <div class="status-pill-row">
+          <div class="dialogue-pill pill-system">
+            <span class="pill-dot"></span>
+            <span>[REPOS] Initialized • Standby</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <section id="admin-workspace" class="admin-workspace" aria-hidden="true">
+    <div class="admin-workspace-header">
+      <div class="brand-icon" aria-hidden="true">A</div>
+      <div class="admin-workspace-title">STAFF ADMIN</div>
+      <div class="admin-workspace-tabs">
+        <button id="admin-tab-face" class="admin-btn admin-btn-primary" type="button">Face enrollment</button>
+        <button id="admin-tab-hand" class="admin-btn" type="button">Point targets</button>
+      </div>
+      <button id="admin-close" class="admin-btn" type="button" aria-label="Close admin">Close</button>
+    </div>
+    <div id="admin-view-face" class="admin-workspace-body active">
+      <div class="admin-live-column"><h2 class="admin-section-heading">Live face camera</h2><div id="admin-face-feed-slot"></div>
+        <div><h2 class="admin-section-heading">Enrollment samples · capture five, review, then register</h2><p class="admin-help">Ask the visitor to look toward the camera and shift their head slightly between samples.</p><div id="face-sample-grid" class="face-sample-grid"></div></div>
+      </div>
+      <div class="admin-tools-column"><div id="admin-face-tools-slot"></div>
+        <h2 class="admin-section-heading">Registered visitors</h2><div id="admin-user-list" class="admin-user-list"></div>
+      </div>
+    </div>
+    <div id="admin-view-hand" class="admin-workspace-body">
+      <div class="admin-live-column"><h2 class="admin-section-heading">Live point camera · draw a target directly on the feed</h2><div id="admin-hand-feed-slot"></div>
+        <p class="admin-help">Use “Draw on Feed”, then drag to create a target area. Existing targets can be moved or resized from the feed’s adjust mode. Changes are saved and applied to the pointing engine.</p>
+      </div>
+      <div class="admin-tools-column"><div id="admin-hand-tools-slot"></div></div>
+    </div>
+  </section>
+
+  <!-- DIALOGUE STREAM, MEDIA SELECTORS & IPC CLIENT SCRIPT -->
+  <script>
+    const termBody = document.getElementById('terminal-body');
+    const activeTargetBar = document.getElementById('active-target-bar');
+    const activeTargetName = document.getElementById('active-target-name');
+    const activeTargetTag = document.getElementById('active-target-tag');
+
+    // Auto-scroll is permanently active in the background
+    const autoScrollEnabled = true;
+
+    function getFormattedTime() {
+      const d = new Date();
+      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    function cleanScroll() {
+      if (!termBody) return;
+      while (termBody.children.length > 250) {
+        termBody.removeChild(termBody.firstChild);
+      }
+      if (autoScrollEnabled) {
+        termBody.scrollTop = termBody.scrollHeight;
+      }
+    }
+
+    // HARDWARE TARGET METADATA
+    const BOARD_SPECS = {
+      esp32: { name: 'ESP32-S3 DevKit', tag: 'Dual-Core Xtensa LX7' },
+      jetson: { name: 'NVIDIA Jetson Orin Nano', tag: '40 TOPS Ampere GPU' },
+      orin: { name: 'NVIDIA Jetson Orin Nano', tag: '40 TOPS Ampere GPU' },
+      stm32: { name: 'STM32 Nucleo-F446RE', tag: 'ARM Cortex-M4 @ 180MHz' },
+      nucleo: { name: 'STM32 Nucleo-F446RE', tag: 'ARM Cortex-M4 @ 180MHz' },
+      arduino: { name: 'Arduino Uno Rev4', tag: 'Renesas RA4M1 32-bit' },
+      uno: { name: 'Arduino Uno Rev4', tag: 'Renesas RA4M1 32-bit' }
+    };
+
+    let currentLatchedBoardKey = null;
+
+    function updateHardwareFocus(boardKey) {
+      if (!boardKey || !String(boardKey).trim()) {
+        return;
+      }
+
+      const key = String(boardKey).toLowerCase();
+      let matchedSpec = null;
+      if (key.includes('esp32')) matchedSpec = BOARD_SPECS.esp32;
+      else if (key.includes('jetson') || key.includes('orin')) matchedSpec = BOARD_SPECS.jetson;
+      else if (key.includes('stm32') || key.includes('nucleo')) matchedSpec = BOARD_SPECS.stm32;
+      else if (key.includes('arduino') || key.includes('uno')) matchedSpec = BOARD_SPECS.arduino;
+      else {
+        matchedSpec = { name: boardKey, tag: '' };
+      }
+
+      if (matchedSpec && activeTargetBar && activeTargetName && activeTargetTag) {
+        currentLatchedBoardKey = key;
+        activeTargetName.textContent = matchedSpec.name;
+        activeTargetTag.textContent = matchedSpec.tag;
+        activeTargetTag.style.display = matchedSpec.tag ? 'inline' : 'none';
+        activeTargetBar.style.display = 'flex';
+      }
+    }
+
+    // STREAMING TOKEN ACCUMULATOR
+    function handleStreamChunk(role, chunk) {
+      if (!chunk || !chunk.trim()) return;
+      let activeBubble = termBody.querySelector('.dialogue-msg.msg-repos.streaming-active');
+      if (!activeBubble) {
+        activeBubble = document.createElement('div');
+        activeBubble.className = 'dialogue-msg msg-repos streaming-active';
+        activeBubble.innerHTML = `
+          <div class="msg-header">
+            <span class="msg-sender-tag">[REPOS]</span>
+            <span class="msg-time">${getFormattedTime()}</span>
+          </div>
+          <div class="msg-body"></div>
+        `;
+        termBody.appendChild(activeBubble);
+      }
+      const bodyEl = activeBubble.querySelector('.msg-body');
+      bodyEl.innerText += (bodyEl.innerText ? ' ' : '') + chunk;
+      cleanScroll();
+    }
+
+    // SANITIZE LEGACY TECHNICAL & SUBSYSTEM LABELS
+    function sanitizeLegacyLabels(text) {
+      if (!text) return '';
+      let res = String(text);
+      res = res.replace(/JARVIS|Jarvis|jarvis/g, 'REPOS');
+      res = res.replace(/AeroFinger|aerofinger|Arrowfinger/gi, 'REPOS 02');
+      res = res.replace(/Face Cam|Facecam/gi, 'REPOS 01');
+      res = res.replace(/Hardware Lab|Native 3-in-1 Shell/gi, 'REPOS');
+      res = res.replace(/YuNet \+ SFace|YuNet|SFace|MediaPipe 3D|MediaPipe/gi, 'REPOS');
+      return res;
+    }
+
+    // LOG DEDUPLICATION & DE-BOUNCING
+    const recentLogSignatures = new Map();
+
+    // SANITIZE LEGACY TECHNICAL & SUBSYSTEM LABELS
+    function sanitizeLegacyLabels(text) {
+      if (!text) return '';
+      let res = String(text);
+      res = res.replace(/JARVIS|Jarvis|jarvis/g, 'REPOS');
+      res = res.replace(/AeroFinger|aerofinger|Arrowfinger/gi, 'REPOS 02');
+      res = res.replace(/Face Cam|Facecam/gi, 'REPOS 01');
+      res = res.replace(/Hardware Lab|Native 3-in-1 Shell/gi, 'REPOS');
+      res = res.replace(/YuNet \+ SFace|YuNet|SFace|MediaPipe 3D|MediaPipe/gi, 'REPOS');
+      return res;
+    }
+
+    // FORMATTED DIALOGUE & STATUS EVENT PRINTER WITH CLIENT-SIDE DE-BOUNCE
+    function appendDialogueMessage(role = "REPOS", text = "") {
+      if (!text || !String(text).trim() || !termBody) return;
+      const rawText = String(text).trim();
+      const normalizedRole = (role || 'REPOS').toUpperCase();
+      const now = Date.now();
+      const signature = `${normalizedRole}:${rawText}`;
+
+      // Suppress exact duplicates even when a state or focus event arrives between them.
+      const lastSeen = recentLogSignatures.get(signature);
+      if (lastSeen && (now - lastSeen) < 1000) {
+        return;
+      }
+      recentLogSignatures.set(signature, now);
+      for (const [seenSignature, seenAt] of recentLogSignatures) {
+        if (now - seenAt >= 2000) recentLogSignatures.delete(seenSignature);
+      }
+
+      // STRICT NOISE FILTER
+      const noisePatterns = [
+        "POST /api", "GET /api", "GET /", "OPTIONS /", "HTTP/1.", "200 OK", "404 Not Found",
+        "terminal_log", "recognize_frame", "presence_state", "WebSocket", "connection_lost",
+        "INFO:", "DEBUG:", "WARNING:", "heartbeat", "multipart/form-data", "piping", "Uvicorn running"
+      ];
+      if (noisePatterns.some(n => rawText.includes(n)) &&
+        !rawText.includes("[YOU]:") && !rawText.includes("[USER]:") &&
+        !rawText.includes("[JARVIS]:") && !rawText.includes("[AGENT]:") &&
+        !rawText.includes("[REPOS]:") && !rawText.includes("[STATUS") &&
+        !rawText.includes("[HARDWARE]") && !rawText.includes("[FOCUS]") &&
+        !rawText.includes("[WAKE WORD")) {
+        return;
+      }
+
+      const upperRole = normalizedRole;
+
+      // 1. HARDWARE LATCH / FOCUS EVENT
+      if (upperRole === 'FOCUS' || rawText.includes('[HARDWARE]') || rawText.includes('[FOCUS]')) {
+        let boardName = text;
+        if (text.includes('to:')) boardName = text.split('to:')[1].trim();
+        else if (text.includes('locked:')) boardName = text.split('locked:')[1].trim();
+        else if (text.includes(':')) boardName = text.split(':')[1].trim();
+        boardName = boardName.replace(/[\[\]]/g, '').trim();
+
+        updateHardwareFocus(boardName);
+
+        const pillRow = document.createElement('div');
+        pillRow.className = 'status-pill-row';
+        pillRow.innerHTML = `
+          <div class="dialogue-pill pill-target">
+            <span class="pill-dot"></span>
+            <span>[REPOS] TARGET: ${escapeHtml(boardName)}</span>
+          </div>
+        `;
+        termBody.appendChild(pillRow);
+        cleanScroll();
+        return;
+      }
+
+      // 2. STATE TRANSITIONS
+      if (upperRole === 'STATE' || rawText.startsWith('[STATUS') || rawText.includes('[STATUS:')) {
+        let stateVal = 'ACTIVE';
+        if (rawText.toLowerCase().includes('listening')) stateVal = 'LISTENING';
+        else if (rawText.toLowerCase().includes('speaking')) stateVal = 'SPEAKING';
+        else if (rawText.toLowerCase().includes('thinking')) stateVal = 'THINKING';
+        else if (rawText.toLowerCase().includes('sleeping') || rawText.toLowerCase().includes('standby')) stateVal = 'SLEEPING';
+        else if (rawText.toLowerCase().includes('active')) stateVal = 'ACTIVE';
+
+        const pillRow = document.createElement('div');
+        pillRow.className = 'status-pill-row';
+        const pillClass = stateVal.toLowerCase();
+        pillRow.innerHTML = `
+          <div class="dialogue-pill pill-${pillClass}">
+            <span class="pill-dot"></span>
+            <span>[REPOS] [${stateVal.toUpperCase()}]</span>
+          </div>
+        `;
+        termBody.appendChild(pillRow);
+        cleanScroll();
+        return;
+      }
+
+      // 3. WAKE WORD DETECTED
+      if (rawText.includes('[WAKE WORD')) {
+        const pillRow = document.createElement('div');
+        pillRow.className = 'status-pill-row';
+        pillRow.innerHTML = `
+          <div class="dialogue-pill pill-listening">
+            <span class="pill-dot"></span>
+            <span>[REPOS] [WAKE TRIGGER]</span>
+          </div>
+        `;
+        termBody.appendChild(pillRow);
+        cleanScroll();
+        return;
+      }
+
+      // 4. USER SPEECH
+      if (upperRole === 'USER' || upperRole === 'YOU' || rawText.startsWith('[USER]:') || rawText.startsWith('[YOU]:')) {
+        let cleanContent = rawText;
+        if (cleanContent.startsWith('[USER]:')) cleanContent = cleanContent.slice(7).trim();
+        else if (cleanContent.startsWith('[YOU]:')) cleanContent = cleanContent.slice(6).trim();
+
+        const msgCard = document.createElement('div');
+        msgCard.className = 'dialogue-msg msg-user';
+        msgCard.innerHTML = `
+          <div class="msg-header">
+            <span class="msg-sender-tag">[USER]</span>
+            <span class="msg-time">${getFormattedTime()}</span>
+          </div>
+          <div class="msg-body">${escapeHtml(cleanContent)}</div>
+        `;
+        termBody.appendChild(msgCard);
+        cleanScroll();
+        return;
+      }
+
+      // 5. REPOS SPEECH
+      if (upperRole === 'JARVIS' || upperRole === 'AGENT' || upperRole === 'REPOS' ||
+          rawText.startsWith('[JARVIS]:') || rawText.startsWith('[AGENT]:') ||
+          rawText.startsWith('[AGENT STREAMING]:') || rawText.startsWith('[REPOS]:')) {
+        let cleanContent = rawText;
+        if (cleanContent.includes(']:')) cleanContent = cleanContent.split(']:')[1].trim().replace(/^"/, '').replace(/"$/, '');
+        cleanContent = sanitizeLegacyLabels(cleanContent);
+
+        // If a streaming bubble was open, finish it with full content
+        const activeBubble = termBody.querySelector('.dialogue-msg.msg-repos.streaming-active');
+        if (activeBubble) {
+          activeBubble.classList.remove('streaming-active');
+          activeBubble.querySelector('.msg-body').innerText = cleanContent;
+          cleanScroll();
+          return;
+        }
+
+        const msgCard = document.createElement('div');
+        msgCard.className = 'dialogue-msg msg-repos';
+        msgCard.innerHTML = `
+          <div class="msg-header">
+            <span class="msg-sender-tag">[REPOS]</span>
+            <span class="msg-time">${getFormattedTime()}</span>
+          </div>
+          <div class="msg-body">${escapeHtml(cleanContent)}</div>
+        `;
+        termBody.appendChild(msgCard);
+        cleanScroll();
+        return;
+      }
+
+      // 6. GENERAL TELEMETRY / SYSTEM NOTICE
+      let sanitizedNotice = sanitizeLegacyLabels(rawText);
+      if (!sanitizedNotice.startsWith('[REPOS]') && !sanitizedNotice.startsWith('[')) {
+        sanitizedNotice = `[REPOS] ${sanitizedNotice}`;
+      }
+      const pillRow = document.createElement('div');
+      pillRow.className = 'status-pill-row';
+      pillRow.innerHTML = `
+        <div class="dialogue-pill pill-system">
+          <span class="pill-dot"></span>
+          <span>${escapeHtml(sanitizedNotice)}</span>
+        </div>
+      `;
+      termBody.appendChild(pillRow);
+      cleanScroll();
+    }
+
+    // AGENT WEBSOCKET FOR MICROPHONE CONTROL (:8765)
+    let agentWs = null;
+    const agentWsQueue = [];
+
+    function connectAgentWs() {
+      try {
+        agentWs = new WebSocket('ws://127.0.0.1:8765');
+        agentWs.onopen = () => {
+          while (agentWsQueue.length > 0) {
+            const pkt = agentWsQueue.shift();
+            try { agentWs.send(JSON.stringify(pkt)); } catch (e) {}
+          }
+        };
+        agentWs.onclose = () => {
+          setTimeout(connectAgentWs, 3000);
+        };
+        agentWs.onerror = () => {
+          try { agentWs.close(); } catch (e) {}
+        };
+      } catch (e) {
+        setTimeout(connectAgentWs, 3000);
+      }
+    }
+
+    function sendMicSwitchToAgent(deviceId, label) {
+      const packet = {
+        event: 'set_audio_device',
+        device_id: deviceId,
+        device_name: label
+      };
+      if (agentWs && agentWs.readyState === WebSocket.OPEN) {
+        agentWs.send(JSON.stringify(packet));
+      } else {
+        agentWsQueue.push(packet);
+      }
+    }
+
+    // PERSIST DEVICE CONFIG VIA BACKEND REST API (:8088)
+    async function persistDeviceConfig(type, deviceId, deviceName) {
+      try {
+        await fetch('http://127.0.0.1:8088/api/set_device', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: type,
+            device_id: deviceId,
+            device_name: deviceName || ''
+          })
+        });
+      } catch (e) {
+        // Non-blocking fallback
+      }
+    }
+
+    // Camera device IDs are scoped to each iframe's origin, so the iframe that
+    // owns the camera stream reports its own list to the parent dashboard.
+    function notifyIframe(iframe, deviceId) {
+      if (!iframe || !iframe.contentWindow) return;
+      try {
+        iframe.contentWindow.postMessage({
+          type: 'CHANGE_CAMERA',
+          deviceId: deviceId
+        }, '*');
+      } catch (e) {
+        console.warn("Could not postMessage to iframe:", e);
+      }
+    }
+
+    function requestCameraDevices(iframe, stream) {
+      if (!iframe || !iframe.contentWindow) return;
+      iframe.contentWindow.postMessage({ type: 'ENUMERATE_CAMERAS', stream }, '*');
+    }
+
+    function renderCameraDevices(stream, devices, activeDeviceId = '', selectionFailed = false) {
+      const isFacecam = stream === 'facecam';
+      const selector = document.getElementById(isFacecam ? 'cam-select-1' : 'cam-select-2');
+      const iframe = document.getElementById(isFacecam ? 'iframe-face' : 'iframe-point');
+      if (!selector) return;
+
+      if (selectionFailed) {
+        localStorage.removeItem(`${stream}_device`);
+        localStorage.removeItem(`${stream}_label`);
+      }
+      const savedId = localStorage.getItem(`${stream}_device`) || '';
+      const usableDevices = Array.isArray(devices) ? devices.filter(d => d && d.deviceId) : [];
+      selector.innerHTML = '';
+
+      if (usableDevices.length === 0) {
+        const emptyOption = document.createElement('option');
+        emptyOption.value = '';
+        emptyOption.textContent = 'No cameras found';
+        selector.appendChild(emptyOption);
+        return;
+      }
+
+      usableDevices.forEach((device, index) => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        option.textContent = device.label || `Camera ${index + 1}`;
+        selector.appendChild(option);
+      });
+
+      const hasDevice = id => id && usableDevices.some(device => device.deviceId === id);
+      const selectedId = hasDevice(savedId)
+        ? savedId
+        : hasDevice(activeDeviceId)
+          ? activeDeviceId
+          : usableDevices[0].deviceId;
+      selector.value = selectedId;
+
+      const selectedDevice = usableDevices.find(device => device.deviceId === selectedId);
+      localStorage.setItem(`${stream}_device`, selectedId);
+      localStorage.setItem(`${stream}_label`, selectedDevice?.label || '');
+
+      // Re-select a persisted camera when it is available, or choose the
+      // iframe's active/default camera when a saved device has disappeared.
+      if (selectedId !== activeDeviceId) notifyIframe(iframe, selectedId);
+    }
+
+    window.addEventListener('message', (event) => {
+      const data = event.data;
+      if (!data || data.type !== 'CAMERA_DEVICES') return;
+
+      const faceFrame = document.getElementById('iframe-face');
+      const handFrame = document.getElementById('iframe-point');
+      const expectedFrame = data.stream === 'facecam' ? faceFrame
+        : data.stream === 'handcam' ? handFrame : null;
+      if (!expectedFrame || event.source !== expectedFrame.contentWindow) return;
+
+      renderCameraDevices(data.stream, data.devices, data.activeDeviceId || '', data.selectionFailed === true);
+    });
+
+    // Enumerate microphones in the dashboard context. Camera enumeration is
+    // handled by each embedded feed, where its camera permission and device IDs live.
+    async function syncMediaSelectors() {
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+          return;
+        }
+
+        let backendConfig = {};
+        try {
+          const cfgRes = await fetch('http://127.0.0.1:8088/api/device_config');
+          if (cfgRes.ok) backendConfig = await cfgRes.json();
+        } catch (e) {}
+
+        const savedMic = localStorage.getItem('agent_mic_device') || backendConfig.agent_mic_device || "";
+        const savedMicLabel = localStorage.getItem('agent_mic_label') || backendConfig.agent_mic_name || "";
+
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const mic1 = document.getElementById('mic-select-1');
+        const mic2 = document.getElementById('mic-select-2');
+
+        const audioDevices = devices.filter(d => d.kind === 'audioinput');
+
+        // Populate Microphones (mic-select-1 and mic-select-2)
+        [mic1, mic2].forEach(sel => {
+          if (!sel) return;
+          sel.innerHTML = '<option value="">Microphone</option>';
+          audioDevices.forEach((d, idx) => {
+            const opt = document.createElement('option');
+            opt.value = d.deviceId;
+            opt.dataset.index = String(idx);
+            opt.textContent = d.label || `Microphone ${idx + 1}`;
+            sel.appendChild(opt);
+          });
+          let matched = false;
+          if (savedMic && Array.from(sel.options).some(o => o.value === savedMic)) {
+            sel.value = savedMic;
+            matched = true;
+          } else if (savedMicLabel) {
+            const found = Array.from(sel.options).find(o => o.textContent.toLowerCase().includes(savedMicLabel.toLowerCase()));
+            if (found) {
+              sel.value = found.value;
+              matched = true;
+            }
+          }
+          if (!matched && sel.options.length > 1) {
+            sel.selectedIndex = 1;
+          }
+        });
+
+        // Ensure active microphone is propagated to live_agent.py
+        const activeMicSel = mic1 || mic2;
+        if (activeMicSel && activeMicSel.value) {
+          const activeMicOption = activeMicSel.selectedOptions[0];
+          const activeMicLabel = activeMicOption ? activeMicOption.text : "";
+          sendMicSwitchToAgent(activeMicSel.value, activeMicLabel);
+        }
+      } catch (err) {
+        console.error("Device enumeration failed:", err);
+      }
+    }
+
+    // WIRE CHANGE LISTENERS FOR DEVICE DROPDOWNS WITH BACKEND RE-BINDING
+    function initDeviceSelectors() {
+      const cam1 = document.getElementById('cam-select-1');
+      const mic1 = document.getElementById('mic-select-1');
+      const cam2 = document.getElementById('cam-select-2');
+      const mic2 = document.getElementById('mic-select-2');
+      const iframe1 = document.getElementById('iframe-face');
+      const iframe2 = document.getElementById('iframe-point');
+
+      // FACECAM Select
+      if (cam1) {
+        cam1.addEventListener('change', (e) => {
+          const devId = e.target.value;
+          const opt = e.target.selectedOptions[0];
+          const label = opt ? opt.textContent : "";
+          localStorage.setItem('facecam_device', devId);
+          localStorage.setItem('facecam_label', label);
+          notifyIframe(iframe1, devId);
+        });
+      }
+
+      // HANDCAM Select
+      if (cam2) {
+        cam2.addEventListener('change', (e) => {
+          const devId = e.target.value;
+          const opt = e.target.selectedOptions[0];
+          const label = opt ? opt.textContent : "";
+          localStorage.setItem('handcam_device', devId);
+          localStorage.setItem('handcam_label', label);
+          notifyIframe(iframe2, devId);
+        });
+      }
+
+      // MICROPHONE Select 1 & 2 (Synchronized pair)
+      function handleMicChange(e) {
+        const devId = e.target.value;
+        const opt = e.target.selectedOptions[0];
+        const label = opt ? opt.text : "";
+        localStorage.setItem('agent_mic_device', devId);
+        localStorage.setItem('agent_mic_label', label);
+
+        // Sync sibling dropdown
+        if (mic1 && mic1.value !== devId) mic1.value = devId;
+        if (mic2 && mic2.value !== devId) mic2.value = devId;
+
+        // Propagate to live_agent.py and persist config
+        sendMicSwitchToAgent(devId, label);
+        persistDeviceConfig('agent_mic', devId, label);
+      }
+
+      if (mic1) mic1.addEventListener('change', handleMicChange);
+      if (mic2) mic2.addEventListener('change', handleMicChange);
+
+      // Re-dispatch camera to iframes once they are fully loaded
+      if (iframe1) {
+        iframe1.addEventListener('load', () => requestCameraDevices(iframe1, 'facecam'));
+      }
+      if (iframe2) {
+        iframe2.addEventListener('load', () => requestCameraDevices(iframe2, 'handcam'));
+      }
+
+      // Handles cases where an iframe finished loading before these listeners were installed.
+      setTimeout(() => {
+        requestCameraDevices(iframe1, 'facecam');
+        requestCameraDevices(iframe2, 'handcam');
+      }, 300);
+
+      if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+        navigator.mediaDevices.addEventListener('devicechange', syncMediaSelectors);
+      }
+    }
+
+    // COLLAPSIBLE ADMIN PANELS (FACECAM & HANDCAM)
+    function initAdminPanels() {
+      const workspace = document.getElementById('admin-workspace');
+      const faceFrame = document.getElementById('iframe-face');
+      const handFrame = document.getElementById('iframe-point');
+      const faceFeed = faceFrame?.parentElement;
+      const handFeed = handFrame?.parentElement;
+      const faceDrawer = document.getElementById('admin-drawer-face');
+      const handDrawer = document.getElementById('admin-drawer-hand');
+      const faceHome = faceFeed?.parentElement;
+      const handHome = handFeed?.parentElement;
+      const faceFeedRect = faceFeed?.getBoundingClientRect();
+      const handFeedRect = handFeed?.getBoundingClientRect();
+      const faceFeedAspect = faceFeedRect?.height ? faceFeedRect.width / faceFeedRect.height : 1.8;
+      const handFeedAspect = handFeedRect?.height ? handFeedRect.width / handFeedRect.height : 2.7;
+      const faceDrawerHome = faceDrawer?.parentElement;
+      const handDrawerHome = handDrawer?.parentElement;
+      const faceFeedNext = faceFeed?.nextSibling;
+      const handFeedNext = handFeed?.nextSibling;
+      const faceDrawerNext = faceDrawer?.nextSibling;
+      const handDrawerNext = handDrawer?.nextSibling;
+      const faceFeedback = document.getElementById('admin-face-feedback');
+      const handFeedback = document.getElementById('admin-hand-feedback');
+      const faceName = document.getElementById('admin-face-name');
+      const faceUserId = document.getElementById('admin-face-user-id');
+      const faceRole = document.getElementById('admin-face-role');
+      const facePron = document.getElementById('admin-face-pronunciation');
+      const faceGreeting = document.getElementById('admin-face-greeting');
+      const sampleGrid = document.getElementById('face-sample-grid');
+      const registerButton = document.getElementById('btn-register-face');
+      const samples = Array(5).fill(null);
+      const sampleUrls = Array(5).fill(null);
+      const pendingSamples = new Map();
+      let registeredUserIds = new Set();
+      let editingUserId = null;
+      let currentZones = [];
+      let adjustModeEnabled = false;
+      let previewAudioContext = null;
+      let previewAudioSource = null;
+
+      function moveNode(node, destination, originalParent, originalNext) {
+        if (!node || !destination) return;
+        if (destination.contains(node)) return;
+        destination.appendChild(node);
+        if (originalParent) node.dataset.adminHome = 'set';
+      }
+      function restoreNode(node, originalParent, originalNext) {
+        if (!node || !originalParent || !node.dataset.adminHome) return;
+        if (originalNext?.parentNode === originalParent) originalParent.insertBefore(node, originalNext);
+        else originalParent.appendChild(node);
+        delete node.dataset.adminHome;
+      }
+      function closeAdmin() {
+        if (adjustModeEnabled) {
+          handFrame?.contentWindow?.postMessage({ type: 'ADMIN_TOGGLE_ADJUST' }, '*');
+          adjustModeEnabled = false;
+          const adjustButton = document.getElementById('btn-adjust-targets');
+          if (adjustButton) adjustButton.textContent = '[ Move / Resize Targets ]';
+        }
+        handFrame?.contentWindow?.postMessage({ type: 'ADMIN_CANCEL_DRAWING' }, '*');
+        workspace?.classList.remove('open');
+        workspace?.setAttribute('aria-hidden', 'true');
+        restoreNode(faceFeed, faceHome, faceFeedNext);
+        restoreNode(handFeed, handHome, handFeedNext);
+        restoreNode(faceDrawer, faceDrawerHome, faceDrawerNext);
+        restoreNode(handDrawer, handDrawerHome, handDrawerNext);
+        [faceFeed, handFeed].forEach(feed => {
+          if (!feed) return;
+          feed.style.aspectRatio = '';
+          feed.style.flex = '';
+          feed.style.height = '';
+          feed.style.alignSelf = '';
+        });
+        document.getElementById('toggle-admin-face')?.classList.remove('active');
+        document.getElementById('toggle-admin-hand')?.classList.remove('active');
+      }
+      function setAdminTab(tab) {
+        const isFace = tab === 'face';
+        document.getElementById('admin-view-face')?.classList.toggle('active', isFace);
+        document.getElementById('admin-view-hand')?.classList.toggle('active', !isFace);
+        document.getElementById('admin-tab-face')?.classList.toggle('admin-btn-primary', isFace);
+        document.getElementById('admin-tab-hand')?.classList.toggle('admin-btn-primary', !isFace);
+      }
+      function openAdmin(tab) {
+        moveNode(faceFeed, document.getElementById('admin-face-feed-slot'), faceHome, faceFeedNext);
+        moveNode(faceDrawer, document.getElementById('admin-face-tools-slot'), faceDrawerHome, faceDrawerNext);
+        moveNode(handFeed, document.getElementById('admin-hand-feed-slot'), handHome, handFeedNext);
+        moveNode(handDrawer, document.getElementById('admin-hand-tools-slot'), handDrawerHome, handDrawerNext);
+        if (faceFeed) { faceFeed.style.aspectRatio = String(faceFeedAspect); faceFeed.style.flex = '0 0 auto'; faceFeed.style.height = 'auto'; faceFeed.style.alignSelf = 'flex-start'; }
+        if (handFeed) { handFeed.style.aspectRatio = String(handFeedAspect); handFeed.style.flex = '0 0 auto'; handFeed.style.height = 'auto'; handFeed.style.alignSelf = 'flex-start'; }
+        workspace?.classList.add('open');
+        workspace?.setAttribute('aria-hidden', 'false');
+        document.getElementById(tab === 'face' ? 'toggle-admin-face' : 'toggle-admin-hand')?.classList.add('active');
+        setAdminTab(tab);
+        if (tab === 'face') loadUsers();
+        else loadZones();
+      }
+      document.getElementById('toggle-admin-face')?.addEventListener('click', () => openAdmin('face'));
+      document.getElementById('toggle-admin-hand')?.addEventListener('click', () => openAdmin('hand'));
+      document.getElementById('admin-close')?.addEventListener('click', closeAdmin);
+      document.getElementById('admin-tab-face')?.addEventListener('click', () => { setAdminTab('face'); loadUsers(); });
+      document.getElementById('admin-tab-hand')?.addEventListener('click', () => { setAdminTab('hand'); loadZones(); });
+      document.addEventListener('keydown', e => { if (e.key === 'Escape' && workspace?.classList.contains('open')) closeAdmin(); });
+
+      document.getElementById('btn-new-face-user')?.addEventListener('click', () => {
+        editingUserId = null;
+        if (faceUserId) { faceUserId.value = ''; faceUserId.readOnly = false; }
+        if (faceName) faceName.value = '';
+        if (faceRole) faceRole.value = 'visitor';
+        if (facePron) facePron.value = '';
+        if (faceGreeting) faceGreeting.value = '';
+        samples.fill(null); renderSamples();
+        const updateButton = document.getElementById('btn-update-face-profile');
+        if (updateButton) updateButton.disabled = true;
+        if (faceFeedback) faceFeedback.textContent = '[Ready to add a new visitor.]';
+      });
+      document.getElementById('btn-update-face-profile')?.addEventListener('click', async () => {
+        if (!editingUserId) return;
+        const displayName = (faceName?.value || '').trim();
+        if (!displayName) { if (faceFeedback) faceFeedback.textContent = '[Display name is required.]'; return; }
+        const updateButton = document.getElementById('btn-update-face-profile');
+        if (updateButton) updateButton.disabled = true;
+        try {
+          const response = await fetch(`http://127.0.0.1:8088/api/users/${encodeURIComponent(editingUserId)}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ display_name: displayName, role: faceRole?.value || 'visitor', pronunciation: (facePron?.value || '').trim(), custom_greeting: (faceGreeting?.value || '').trim() })
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.detail || `HTTP ${response.status}`);
+          if (faceFeedback) faceFeedback.textContent = `[Profile saved as “${result.display_name}”.]`;
+          await loadUsers();
+        } catch (err) {
+          if (faceFeedback) faceFeedback.textContent = `[Profile update failed: ${err.message}]`;
+        } finally { if (updateButton) updateButton.disabled = !editingUserId; }
+      });
+
+      const testPronunciationButton = document.getElementById('btn-test-pronunciation');
+      testPronunciationButton?.addEventListener('click', async () => {
+        const previewText = (facePron?.value || '').trim() || (faceName?.value || '').trim();
+        if (!previewText) { if (faceFeedback) faceFeedback.textContent = '[Enter a name or pronunciation key first.]'; return; }
+        testPronunciationButton.disabled = true;
+        try {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          let resumeAudio = null;
+          if (AudioContextClass) {
+            previewAudioContext ||= new AudioContextClass();
+            // Resume immediately in the click gesture so playback remains allowed after synthesis completes.
+            resumeAudio = previewAudioContext.resume();
+          }
+          if (faceFeedback) faceFeedback.textContent = '[Generating pronunciation preview…]';
+          const response = await fetch('http://127.0.0.1:8088/api/tts_preview', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: previewText })
+          });
+          if (!response.ok) {
+            let detail = response.statusText;
+            try { detail = (await response.json()).detail || detail; } catch (_) {}
+            throw new Error(detail);
+          }
+          const audioBytes = await response.arrayBuffer();
+          if (!audioBytes.byteLength) throw new Error('The speech service returned an empty audio file.');
+          if (previewAudioContext) {
+            await resumeAudio;
+            const audioBuffer = await previewAudioContext.decodeAudioData(audioBytes);
+            if (previewAudioSource) { try { previewAudioSource.stop(); } catch (_) {} }
+            const source = previewAudioContext.createBufferSource();
+            previewAudioSource = source;
+            source.buffer = audioBuffer;
+            source.connect(previewAudioContext.destination);
+            source.onended = () => { if (previewAudioSource === source) previewAudioSource = null; };
+            source.start();
+          } else {
+            const audioUrl = URL.createObjectURL(new Blob([audioBytes], { type: 'audio/wav' }));
+            const audio = new Audio(audioUrl);
+            await audio.play();
+            audio.addEventListener('ended', () => URL.revokeObjectURL(audioUrl), { once: true });
+          }
+          if (faceFeedback) faceFeedback.textContent = `[Playing pronunciation: ${previewText}]`;
+        } catch (err) {
+          if (faceFeedback) faceFeedback.textContent = `[Pronunciation preview failed: ${err.message}]`;
+        } finally {
+          testPronunciationButton.disabled = false;
+        }
+      });
+
+      function renderSamples() {
+        if (!sampleGrid) return;
+        sampleGrid.innerHTML = '';
+        samples.forEach((blob, index) => {
+          const card = document.createElement('div');
+          card.className = 'face-sample';
+          if (sampleUrls[index]) URL.revokeObjectURL(sampleUrls[index]);
+          sampleUrls[index] = blob ? URL.createObjectURL(blob) : null;
+          if (blob) {
+            const img = document.createElement('img');
+            img.src = sampleUrls[index];
+            img.alt = `Captured face sample ${index + 1}`;
+            card.appendChild(img);
+          } else {
+            card.innerHTML = '<span class="face-sample-label">Awaiting sample</span>';
+          }
+          const label = document.createElement('span');
+          label.className = 'face-sample-label';
+          label.textContent = `Sample ${index + 1}`;
+          card.appendChild(label);
+          if (blob) {
+            const actions = document.createElement('div');
+            actions.className = 'face-sample-actions';
+            const retake = document.createElement('button');
+            retake.type = 'button'; retake.textContent = 'Retake';
+            retake.addEventListener('click', async () => {
+              retake.disabled = true;
+              try { samples[index] = await captureSample(index); renderSamples(); }
+              catch (err) { if (faceFeedback) faceFeedback.textContent = `[Retake failed: ${err.message}]`; retake.disabled = false; }
+            });
+            const remove = document.createElement('button');
+            remove.type = 'button'; remove.textContent = '×'; remove.title = 'Remove sample';
+            remove.addEventListener('click', () => { samples[index] = null; renderSamples(); updateRegisterState(); });
+            actions.append(retake, remove); card.appendChild(actions);
+          }
+          sampleGrid.appendChild(card);
+        });
+        updateRegisterState();
+      }
+      function updateRegisterState() {
+        if (registerButton) registerButton.disabled = samples.some(sample => !sample);
+      }
+      function captureSample(index) {
+        return new Promise((resolve, reject) => {
+          const requestId = `face-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`;
+          const timeout = setTimeout(() => { pendingSamples.delete(requestId); reject(new Error('Camera did not return a sample.')); }, 8000);
+          pendingSamples.set(requestId, { index, resolve, reject, timeout });
+          faceFrame?.contentWindow?.postMessage({ type: 'CAPTURE_FACE_SAMPLE', requestId, index }, '*');
+        });
+      }
+      document.getElementById('btn-capture-face')?.addEventListener('click', async () => {
+        const button = document.getElementById('btn-capture-face');
+        if (button) button.disabled = true;
+        for (let i = 0; i < samples.length; i++) {
+          if (faceFeedback) faceFeedback.textContent = `[Capturing sample ${i + 1} of 5…]`;
+          try { samples[i] = await captureSample(i); renderSamples(); }
+          catch (err) { if (faceFeedback) faceFeedback.textContent = `[Capture stopped: ${err.message}]`; break; }
+          if (i < samples.length - 1) await new Promise(resolve => setTimeout(resolve, 650));
+        }
+        if (button) button.disabled = false;
+        if (faceFeedback && samples.every(Boolean)) faceFeedback.textContent = '[Review the five images, retake or remove any, then register.]';
+      });
+
+      function generatedUserId(name) {
+        return name.toLowerCase().trim().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || `visitor_${Date.now()}`;
+      }
+      registerButton?.addEventListener('click', () => {
+        const displayName = (faceName?.value || '').trim();
+        if (!displayName) { if (faceFeedback) faceFeedback.textContent = '[Display name is required.]'; return; }
+        if (samples.some(sample => !sample)) { if (faceFeedback) faceFeedback.textContent = '[Capture all five samples before registering.]'; return; }
+        const userId = (faceUserId?.value || '').trim() || generatedUserId(displayName);
+        const isExistingProfile = registeredUserIds.has(userId.toLowerCase());
+        if (faceFeedback) faceFeedback.textContent = isExistingProfile
+          ? '[Updating this profile and adding the five new samples…]'
+          : '[Saving face samples…]';
+        registerButton.disabled = true;
+        faceFrame?.contentWindow?.postMessage({
+          type: 'REGISTER_FACE_SAMPLES', userId, displayName,
+          role: faceRole?.value || 'visitor',
+          pronunciation: (facePron?.value || '').trim(),
+          customGreeting: (faceGreeting?.value || '').trim(), samples
+        }, '*');
+      });
+
+      async function loadUsers() {
+        const list = document.getElementById('admin-user-list');
+        if (!list) return;
+        list.innerHTML = '<div class="admin-help">Loading registered users…</div>';
+        try {
+          const response = await fetch('http://127.0.0.1:8088/api/users');
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const users = await response.json();
+          registeredUserIds = new Set(users.map(user => String(user.user_id || '').toLowerCase()));
+          list.innerHTML = '';
+          if (!users.length) { list.innerHTML = '<div class="admin-help">No users registered yet.</div>'; return; }
+          users.forEach(user => {
+            const row = document.createElement('div'); row.className = 'admin-user-row';
+            const info = document.createElement('div');
+            const name = document.createElement('strong'); name.textContent = user.display_name || user.user_id;
+            const meta = document.createElement('div'); meta.className = 'admin-user-meta';
+            meta.textContent = `${user.user_id} · ${user.role || 'visitor'} · ${user.sample_count || 0} samples${user.pronunciation ? ` · says “${user.pronunciation}”` : ''}`;
+            info.append(name, meta);
+            const actions = document.createElement('div'); actions.className = 'admin-actions-row';
+            const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'admin-btn'; edit.textContent = 'Edit';
+            edit.addEventListener('click', () => {
+              editingUserId = user.user_id;
+              if (faceUserId) { faceUserId.value = user.user_id; faceUserId.readOnly = true; }
+              if (faceName) faceName.value = user.display_name || user.user_id;
+              if (faceRole) faceRole.value = user.role || 'visitor';
+              if (facePron) facePron.value = user.pronunciation || '';
+              if (faceGreeting) faceGreeting.value = user.custom_greeting || '';
+              const updateButton = document.getElementById('btn-update-face-profile');
+              if (updateButton) updateButton.disabled = false;
+              if (faceFeedback) faceFeedback.textContent = `[Editing ${user.display_name || user.user_id}. Update details here, or capture five more samples and confirm enrollment.]`;
+            });
+            const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'admin-btn admin-btn-danger'; remove.textContent = 'Delete';
+            remove.addEventListener('click', async () => {
+              if (!confirm(`Delete ${user.display_name || user.user_id} and their face samples?`)) return;
+              try {
+                const result = await fetch(`http://127.0.0.1:8088/api/users/${encodeURIComponent(user.user_id)}`, { method: 'DELETE' });
+                if (!result.ok) throw new Error((await result.json()).detail || `HTTP ${result.status}`);
+                loadUsers();
+              } catch (err) { if (faceFeedback) faceFeedback.textContent = `[Delete failed: ${err.message}]`; }
+            });
+            actions.append(edit, remove);
+            row.append(info, actions); list.appendChild(row);
+          });
+        } catch (err) { list.innerHTML = `<div class="admin-help">Could not load users: ${err.message}</div>`; }
+      }
+
+      const zoneSelect = document.getElementById('admin-zone-select');
+      const productSelect = document.getElementById('admin-zone-product');
+      let projectionProducts = [];
+      function productForId(id) {
+        return projectionProducts.find(product => String(product.id) === String(id));
+      }
+      async function loadProjectionProducts() {
+        if (!productSelect) return;
+        try {
+          const response = await fetch('http://127.0.0.1:8088/api/products');
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          projectionProducts = await response.json();
+          productSelect.innerHTML = '<option value="">Select a product ID…</option>';
+          projectionProducts.forEach(product => {
+            const option = document.createElement('option');
+            option.value = String(product.id);
+            option.textContent = `${product.id} · ${product.name}`;
+            productSelect.appendChild(option);
+          });
+          const selected = currentZones.find(zone => zone.id === zoneSelect?.value);
+          if (selected?.productId != null) productSelect.value = String(selected.productId);
+        } catch (err) {
+          productSelect.innerHTML = '<option value="">Product catalog unavailable</option>';
+          if (handFeedback) handFeedback.textContent = `[Could not load products: ${err.message}]`;
+        }
+      }
+      function renderZoneOptions(selectedId = '') {
+        if (!zoneSelect) return;
+        zoneSelect.innerHTML = '';
+        currentZones.forEach((zone, index) => {
+          const product = productForId(zone.productId);
+          const option = document.createElement('option'); option.value = zone.id || `zone_${index}`; option.textContent = `${product ? `${product.id} · ${product.name}` : 'Unassigned'} (${zone.id || `Target ${index + 1}`})`; zoneSelect.appendChild(option);
+        });
+        if (selectedId) zoneSelect.value = selectedId;
+        const selected = currentZones.find(zone => zone.id === zoneSelect.value) || currentZones[0];
+        if (productSelect) productSelect.value = selected?.productId == null ? '' : String(selected.productId);
+      }
+      async function loadZones() {
+        try {
+          const response = await fetch('http://127.0.0.1:8088/api/zones');
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          currentZones = await response.json();
+          await loadProjectionProducts();
+          renderZoneOptions();
+          handFrame?.contentWindow?.postMessage({ type: 'SET_ZONES', zones: currentZones }, '*');
+        } catch (err) { handFrame?.contentWindow?.postMessage({ type: 'GET_ZONES' }, '*'); }
+      }
+      async function persistZones(zones, selectedId = '') {
+        const response = await fetch('http://127.0.0.1:8088/api/set_zones', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zones })
+        });
+        if (!response.ok) throw new Error(`Could not save targets (HTTP ${response.status})`);
+        currentZones = zones;
+        handFrame?.contentWindow?.postMessage({ type: 'SET_ZONES', zones: currentZones }, '*');
+        renderZoneOptions(selectedId);
+      }
+      zoneSelect?.addEventListener('change', () => {
+        const selected = currentZones.find(zone => zone.id === zoneSelect.value);
+        if (productSelect) productSelect.value = selected?.productId == null ? '' : String(selected.productId);
+        handFrame?.contentWindow?.postMessage({ type: 'HIGHLIGHT_ZONE', zoneId: zoneSelect.value }, '*');
+      });
+      document.getElementById('btn-add-zone')?.addEventListener('click', () => {
+        handFrame?.contentWindow?.postMessage({ type: 'ADMIN_START_DRAWING' }, '*');
+        if (handFeedback) handFeedback.textContent = '[Drag over the live feed to draw a target.]';
+      });
+      document.getElementById('btn-save-zone')?.addEventListener('click', async () => {
+        const selectedId = zoneSelect?.value;
+        const productId = Number(productSelect?.value);
+        if (!selectedId || !Number.isInteger(productId) || !productForId(productId)) {
+          if (handFeedback) handFeedback.textContent = '[Choose a valid product ID before saving.]';
+          return;
+        }
+        const product = productForId(productId);
+        const zones = currentZones.map(zone => zone.id === selectedId
+          ? { ...zone, productId, name: product.name, voiceMessage: '' }
+          : zone);
+        try { await persistZones(zones, selectedId); if (handFeedback) handFeedback.textContent = `[Product ${productId} assigned and applied.]`; }
+        catch (err) { if (handFeedback) handFeedback.textContent = `[Save failed: ${err.message}]`; }
+      });
+      document.getElementById('btn-delete-zone')?.addEventListener('click', async () => {
+        const selectedId = zoneSelect?.value;
+        if (!selectedId) return;
+        try { await persistZones(currentZones.filter(zone => zone.id !== selectedId)); if (handFeedback) handFeedback.textContent = '[Target deleted and applied.]'; }
+        catch (err) { if (handFeedback) handFeedback.textContent = `[Delete failed: ${err.message}]`; }
+      });
+      const adjustButton = document.getElementById('btn-adjust-targets');
+      adjustButton?.addEventListener('click', () => {
+        adjustModeEnabled = !adjustModeEnabled;
+        handFrame?.contentWindow?.postMessage({ type: 'ADMIN_TOGGLE_ADJUST' }, '*');
+        adjustButton.textContent = adjustModeEnabled ? '[ Finish Move / Resize ]' : '[ Move / Resize Targets ]';
+      });
+      window.addEventListener('message', async e => {
+        if (e.source === faceFrame?.contentWindow && e.data?.type === 'FACE_SAMPLE_CAPTURED') {
+          const pending = pendingSamples.get(e.data.requestId);
+          if (!pending) return;
+          clearTimeout(pending.timeout); pendingSamples.delete(e.data.requestId);
+          if (e.data.error || !e.data.blob) pending.reject(new Error(e.data.error || 'No image was returned.'));
+          else pending.resolve(e.data.blob);
+        } else if (e.source === faceFrame?.contentWindow && e.data?.type === 'REGISTER_RESULT') {
+          if (faceFeedback) faceFeedback.textContent = e.data.success
+            ? `[Registered ${e.data.displayName} · ${e.data.samples} samples enrolled.]`
+            : `[Registration failed: ${e.data.error || 'Unknown error'}]`;
+          if (registerButton) registerButton.disabled = false;
+          if (e.data.success) { samples.fill(null); renderSamples(); loadUsers(); }
+        } else if (e.source === handFrame?.contentWindow && e.data?.type === 'ZONES_DATA' && Array.isArray(e.data.zones)) {
+          if (e.data.adminUpdate) {
+            try { await persistZones(e.data.zones, e.data.selectedId || ''); if (handFeedback) handFeedback.textContent = '[New target saved and applied.]'; }
+            catch (err) { if (handFeedback) handFeedback.textContent = `[Save failed: ${err.message}]`; }
+          } else {
+            currentZones = e.data.zones; renderZoneOptions(e.data.selectedId || '');
+          }
+        }
+      });
+    }
+    // ATTEMPT TO INJECT STYLES TO SUPPRESS ANY LEGACY EMBEDDED IFRAME BADGES
+    function setupIframeOverlaySuppression() {
+      const iframeFace = document.getElementById('iframe-face');
+      if (iframeFace) {
+        iframeFace.addEventListener('load', () => {
+          try {
+            const doc = iframeFace.contentDocument || iframeFace.contentWindow.document;
+            if (doc) {
+              const style = doc.createElement('style');
+              style.textContent = '.kiosk-badge, #kioskBadge { display: none !important; opacity: 0 !important; visibility: hidden !important; }';
+              doc.head.appendChild(style);
+            }
+          } catch (e) {
+            // Handled via cross-origin isolation
+          }
+        });
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      connectAgentWs();
+      syncMediaSelectors();
+      initDeviceSelectors();
+      initAdminPanels();
+      setupIframeOverlaySuppression();
+    });
+
+    // SSE TELEMETRY STREAM CONNECTION
+    let evtSource = null;
+    function connectTerminalStream() {
+      if (evtSource) {
+        try { evtSource.close(); } catch (e) {}
+        evtSource = null;
+      }
+      const streamUrl = 'http://127.0.0.1:8088/terminal_stream';
+      evtSource = new EventSource(streamUrl);
+
+      evtSource.onopen = () => {
+        appendDialogueMessage('SYSTEM', `[REPOS] Telemetry stream connected (:8088)`);
+      };
+
+      evtSource.onmessage = (event) => {
+        try {
+          if (!event.data || event.data.trim() === ': ping') return;
+          const data = JSON.parse(event.data);
+
+          if (data.type === 'state') {
+            if (data.state) appendDialogueMessage('STATE', data.state);
+          } else if (data.type === 'focus') {
+            if (data.board) {
+              updateHardwareFocus(data.board);
+              appendDialogueMessage('FOCUS', data.board);
+            } else if (data.text) {
+              appendDialogueMessage('FOCUS', data.text);
+            }
+          } else if (data.type === 'transcript') {
+            appendDialogueMessage(data.role, data.text);
+          } else if (data.type === 'stream_chunk') {
+            handleStreamChunk(data.role, data.chunk);
+          } else if (data.type === 'log') {
+            appendDialogueMessage('SYSTEM', data.text);
+          }
+        } catch (err) {
+          appendDialogueMessage('SYSTEM', event.data);
+        }
+      };
+
+      evtSource.onerror = (err) => {
+        if (evtSource) {
+          try { evtSource.close(); } catch (e) {}
+          evtSource = null;
+        }
+        setTimeout(connectTerminalStream, 2000);
+      };
+    }
+
+    connectTerminalStream();
+  </script>
+</body>
+
+</html>

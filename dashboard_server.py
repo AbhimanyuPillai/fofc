@@ -61,11 +61,11 @@ def set_state(new_state: str):
     if not _is_server_active:
         _dispatch_remote_event(ev)
 
-def set_hardware_focus(board: Optional[str]):
+def set_hardware_focus(board: Optional[str], product_id: Optional[int] = None):
     """Highlights active hardware card on dashboard ('esp32', 'jetson', 'stm32', 'arduino', or None)."""
     global _current_focus_board
     _current_focus_board = board
-    ev = {"type": "focus", "board": board, "timestamp": time.time()}
+    ev = {"type": "focus", "board": board, "productId": product_id, "timestamp": time.time()}
     _broadcast_event(ev)
     if not _is_server_active:
         _dispatch_remote_event(ev)

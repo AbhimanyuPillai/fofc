@@ -314,16 +314,36 @@ def get_active_pointed_context() -> Optional[str]:
             details.append(f"Board description: {description}")
         product_context = " ".join(details)
         return (
-            f"[Active Table Context: The visitor is pointing to {board_name} (product ID {product_id}). "
+            f"[Active Table Context: The visitor is asking about or pointing to {board_name} (product ID {product_id}). "
             f"Use this product information as the source of truth when explaining it. {product_context} "
             "Explain what the board helps with in plain language. Do not invent specifications. "
             "Unless they explicitly ask about a different board, ground your answer in this board.]"
         )
 
     return (
-        f"[Active Table Context: The visitor is pointing to {board_name}. "
+        f"[Active Table Context: The visitor is asking about or pointing to {board_name}. "
         "Unless they explicitly ask about a different board, ground your answer in this board.]"
     )
+
+
+def latch_hardware_product(product_id: int, source: str) -> bool:
+    """Set the active product context and ask the projection app to select it."""
+    global current_pointed_board, current_pointed_product_id
+    product = projection_bridge.get_product(product_id)
+    if not product:
+        projection_bridge.refresh_product_catalog()
+        product = projection_bridge.get_product(product_id)
+    if not product:
+        return False
+    name = str(product.get("name") or f"Product {product_id}").strip()
+    with pointed_board_lock:
+        current_pointed_board = name
+        current_pointed_product_id = int(product_id)
+    print(f"[HARDWARE] Selected active board from {source}: {name} (product ID {product_id})")
+    if "dashboard_server" in globals() and hasattr(dashboard_server, "set_hardware_focus"):
+        dashboard_server.set_hardware_focus(name, product_id=int(product_id))
+    projection_bridge.point_to_product(int(product_id))
+    return True
 
 DEVICE_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "device_config.json")
 
@@ -410,7 +430,6 @@ def switch_audio_device(device_name: str = "", device_id: str = ""):
             print(f"[AUDIO CAPTURE RESTART WARNING] Failed to switch to [{target_idx}]: {e}")
 
 async def pointing_ws_handler(websocket):
-    global current_pointed_board, current_pointed_product_id
     try:
         async for message in websocket:
             try:
@@ -423,17 +442,17 @@ async def pointing_ws_handler(websocket):
                         product_id = None
                     product = projection_bridge.get_product(product_id)
                     new_board = (product or {}).get("name") or data.get("board")
-                    if new_board is not None and str(new_board).strip():
+                    if product_id is not None and product:
+                        latch_hardware_product(product_id, "pointing")
+                    elif new_board is not None and str(new_board).strip():
                         board_str = str(new_board).strip()
                         with pointed_board_lock:
                             current_pointed_board = board_str
-                            current_pointed_product_id = product_id
-                        id_suffix = f" (product ID {product_id})" if product_id is not None else " (no product ID)"
+                            current_pointed_product_id = None
+                        id_suffix = " (no product ID)"
                         print(f"[HARDWARE] Latched active board to: {board_str}{id_suffix}")
                         if "dashboard_server" in globals() and hasattr(dashboard_server, "set_hardware_focus"):
                             dashboard_server.set_hardware_focus(board_str)
-                        if product_id is not None:
-                            projection_bridge.point_to_product(product_id)
                     # When board is None (hand pulled back), DO NOT reset; preserve latched state
                 elif data.get("event") == "set_audio_device" or data.get("type") == "SET_AUDIO_DEVICE":
                     dev_id = data.get("device_id", "")
@@ -644,18 +663,6 @@ def clear_all_queues():
         except queue.Empty:
             break
 
-def detect_and_broadcast_hardware(text: str):
-    """Detects embedded board mentions in agent responses and highlights them on the dashboard."""
-    t = text.lower()
-    if "jetson" in t or "orin" in t:
-        dashboard_server.set_hardware_focus("jetson")
-    elif "esp32" in t:
-        dashboard_server.set_hardware_focus("esp32")
-    elif "stm32" in t or "nucleo" in t:
-        dashboard_server.set_hardware_focus("stm32")
-    elif "arduino" in t or "uno" in t:
-        dashboard_server.set_hardware_focus("arduino")
-
 def speak_direct(text: str, spoken_text: Optional[str] = None):
     global is_agent_speaking, interrupt_requested
     is_agent_speaking = True
@@ -664,7 +671,6 @@ def speak_direct(text: str, spoken_text: Optional[str] = None):
     clean_speech_text = clean_text_for_tts(apply_active_user_pronunciation(speech_source))
     print(f"\n[AGENT]: \"{clean_text}\"")
     dashboard_server.set_state("SPEAKING")
-    detect_and_broadcast_hardware(clean_text)
     dashboard_server.broadcast_transcript("JARVIS", clean_text)
     try:
         samples, sr = kokoro.create(clean_speech_text, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
@@ -1018,7 +1024,6 @@ def stream_brain_to_voice(user_text: str):
                         cand_clean = clean_display_text(cand)
                         if cand_clean:
                             print(f"\n[AGENT STREAMING]: \"{cand_clean}\"")
-                            detect_and_broadcast_hardware(cand_clean)
                             dashboard_server.broadcast_stream_chunk("JARVIS", cand_clean)
                             synthesize_and_queue(cand)
                             buffer = buffer[pos:].lstrip()
@@ -1032,7 +1037,6 @@ def stream_brain_to_voice(user_text: str):
             remaining = clean_display_text(buffer)
             if remaining:
                 print(f"\n[AGENT STREAMING]: \"{remaining}\"")
-                detect_and_broadcast_hardware(remaining)
                 dashboard_server.broadcast_stream_chunk("JARVIS", remaining)
                 synthesize_and_queue(buffer)
 
@@ -1199,6 +1203,9 @@ def main():
                 state = "ACTIVE"
                 dashboard_server.set_state("THINKING")
                 dashboard_server.broadcast_transcript("YOU", typed_msg)
+                matched_product = projection_bridge.find_product_by_text(typed_msg)
+                if matched_product:
+                    latch_hardware_product(int(matched_product["id"]), "typed question")
                 vad_iterator.reset_states()
                 speech_buffer = []
                 pre_buffer.clear()
@@ -1495,6 +1502,10 @@ def main():
 
                         print(f"\n[YOU]: {user_text}")
                         dashboard_server.broadcast_transcript("YOU", user_text)
+
+                        matched_product = projection_bridge.find_product_by_text(user_text)
+                        if matched_product:
+                            latch_hardware_product(int(matched_product["id"]), "spoken question")
 
                         pointed_context = get_active_pointed_context()
                         if pointed_context:

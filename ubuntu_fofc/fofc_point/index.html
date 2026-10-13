@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>AeroFinger · Edge MediaPipe Finger Pointing & Area Tracker</title>
+  <meta name="description"
+    content="Offline edge-optimized Google MediaPipe finger keypoint and interactive area pointing web application." />
+  <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#070a12" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet">
+</head>
+
+<body>
+  <div id="app" class="app-container">
+    <!-- Clean Edge Top Bar -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-logo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path>
+            <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path>
+            <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path>
+            <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15">
+            </path>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-title">AERO<span class="highlight">FINGER</span></span>
+          <span class="brand-sub">POINT & TRIGGER AREAS</span>
+        </div>
+      </div>
+
+      <!-- Telemetry Indicators -->
+      <div class="header-telemetry">
+        <div class="badge badge-offline" title="100% Offline execution, zero network requests">
+          <span class="status-dot"></span>
+          <span class="badge-text">EDGE OFFLINE</span>
+        </div>
+        <div class="telemetry-item" id="fps-display" title="Detection Frames Per Second">
+          <span class="telemetry-label">FPS</span>
+          <span class="telemetry-val" id="val-fps">--</span>
+        </div>
+      </div>
+
+      <!-- Area & Camera Controls -->
+      <div class="header-actions">
+        <!-- Add Area Button -->
+        <button id="btn-add-area" class="btn-primary-pill"
+          title="Click and drag on the camera feed to define an interactive area">
+          <i data-lucide="plus-circle"></i>
+          <span>Add Area</span>
+        </button>
+
+        <!-- Dwell Trigger Time Select -->
+        <select id="dwell-select" class="ctrl-select" title="Trigger dwell duration when pointing at an area">
+          <option value="500">0.5s Point</option>
+          <option value="600" selected>0.6s Point</option>
+          <option value="800">0.8s Point</option>
+          <option value="1000">1.0s Point</option>
+        </select>
+
+        <!-- Manage Areas Modal Button -->
+        <button id="btn-manage-areas" class="btn-icon" title="View & Manage Custom Areas">
+          <i data-lucide="layers"></i>
+        </button>
+
+        <!-- Voice / Speech Prompt Toggle -->
+        <button id="btn-toggle-speech" class="btn-icon active"
+          title="Voice Announcement (Speaks area name when pointed)">
+          <i data-lucide="volume-2"></i>
+        </button>
+
+        <!-- Camera Select -->
+        <select id="camera-select" class="ctrl-select" title="Select Video Device">
+          <option value="">Default Camera</option>
+        </select>
+
+        <!-- Resolution Select -->
+        <select id="resolution-select" class="ctrl-select" title="Resolution (Lower is significantly faster)">
+          <option value="640x480" selected>480p Fast</option>
+          <option value="480x360">360p Ultra</option>
+          <option value="1280x720">720p HD</option>
+        </select>
+
+        <!-- Hand Count Select -->
+        <select id="hands-select" class="ctrl-select" title="Tracked Hands">
+          <option value="1">1 Hand</option>
+          <option value="2" selected>2 Hands</option>
+        </select>
+
+        <!-- Flip Horizontally (Mirror) -->
+        <button id="btn-toggle-flip-h" class="btn-icon active" title="Flip Horizontally (Mirror)">
+          <i data-lucide="flip-horizontal"></i>
+        </button>
+
+        <!-- Flip Vertically -->
+        <button id="btn-toggle-flip-v" class="btn-icon" title="Flip Vertically">
+          <i data-lucide="flip-vertical"></i>
+        </button>
+
+        <!-- Uncropped Fit vs Fill Toggle -->
+        <button id="btn-toggle-fit" class="btn-icon active"
+          title="Toggle Uncropped Full Video (Fit) vs Full-Bleed (Fill)">
+          <i data-lucide="scan"></i>
+        </button>
+
+        <!-- Fullscreen Toggle -->
+        <button id="btn-fullscreen" class="btn-icon" title="Toggle Fullscreen">
+          <i data-lucide="maximize"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- Fullscreen Viewport -->
+    <main class="workspace">
+      <div class="viewport-panel">
+        <div class="viewport-wrapper" id="viewport-wrapper">
+          <video id="webcam-video" playsinline muted autoplay></video>
+          <canvas id="output-canvas"></canvas>
+          <div id="kiosk-fps" class="kiosk-fps-counter">FPS: --</div>
+
+          <!-- Loading & Initialization Overlay -->
+          <div id="loading-overlay" class="loading-overlay">
+            <div class="loading-card">
+              <div class="radar-spinner">
+                <div class="radar-circle"></div>
+                <div class="radar-sweep"></div>
+              </div>
+              <h3>Starting Edge Vision Engine...</h3>
+              <p>Loading offline Google MediaPipe WebAssembly and HandLandmarker model...</p>
+              <div class="loading-bar-wrapper">
+                <div class="loading-bar-inner"></div>
+              </div>
+              <div class="loading-details" id="loading-details">Initializing...</div>
+            </div>
+          </div>
+
+          <!-- Drawing Area Guidance Banner -->
+          <div id="draw-mode-banner" class="draw-mode-banner hidden">
+            <div class="draw-shape-selector">
+              <button id="btn-mode-rect" class="shape-btn active" title="Draw rectangular box by dragging">
+                <i data-lucide="square"></i>
+                <span>Box (Drag)</span>
+              </button>
+              <button id="btn-mode-poly" class="shape-btn" title="Click points to draw custom polygon shape">
+                <i data-lucide="hexagon"></i>
+                <span>Polygon (Points)</span>
+              </button>
+            </div>
+            <span id="draw-guidance-text">📐 Drag anywhere on camera feed to create box</span>
+            <div class="draw-banner-actions">
+              <button id="btn-finish-poly" class="btn-action-pill hidden" title="Finish polygon and configure voice">
+                <i data-lucide="check-circle-2"></i>
+                <span>Complete (<span id="poly-count">0</span> pts)</span>
+              </button>
+              <button id="btn-undo-poly" class="btn-cancel-pill hidden" title="Undo last point">
+                <i data-lucide="undo-2"></i>
+                <span>Undo</span>
+              </button>
+              <button id="btn-cancel-draw" class="btn-cancel-pill">Cancel (ESC)</button>
+            </div>
+          </div>
+
+          <!-- Spacebar Polygon Adjust Banner -->
+          <div id="adjust-mode-banner" class="adjust-mode-banner hidden">
+            <div class="adjust-banner-badge">
+              <span class="key-pill">SPACE</span>
+              <span>ADJUST MODE</span>
+            </div>
+            <span class="adjust-banner-text">Drag corner handles to reshape &bull; Drag area body to move</span>
+          </div>
+
+          <!-- Pointing Detection Prompt Banner -->
+          <div id="pointing-prompt-banner" class="pointing-prompt-banner hidden">
+            <div class="prompt-icon-ring">
+              <i data-lucide="crosshair"></i>
+            </div>
+            <div class="prompt-content">
+              <div class="prompt-subtitle">POINTING AT AREA</div>
+              <div class="prompt-title" id="prompt-area-name">CONTROL PANEL</div>
+              <div class="prompt-meta" id="prompt-area-meta">Held for 0.8s</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Name & Configure Area Modal Dialog -->
+    <div id="name-area-modal" class="modal-backdrop hidden">
+      <div class="modal-card small-modal">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <i data-lucide="map-pin"></i>
+            <h3>Configure Area & Voice</h3>
+          </div>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label" for="input-area-name">Area Name / Label</label>
+            <input type="text" id="input-area-name" class="modal-text-input"
+              placeholder="e.g. Coffee Cup, Server Rack, Button A" maxlength="40" />
+          </div>
+
+          <div class="form-group" style="margin-top: 14px;">
+            <div class="label-with-action">
+              <label class="form-label" for="input-area-voice">Custom Voice Announcement</label>
+              <button id="btn-preview-voice" type="button" class="btn-link-action" title="Listen to voice preview">
+                <i data-lucide="volume-2"></i> Preview Voice
+              </button>
+            </div>
+            <input type="text" id="input-area-voice" class="modal-text-input"
+              placeholder="e.g. Warning, critical equipment in sight" maxlength="120" />
+            <p class="field-help">Custom voice message when pointed. Leave empty to speak: <em>"Pointed to
+                &lt;Name&gt;"</em></p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-cancel-name-area" class="btn-secondary">Cancel</button>
+          <button id="btn-save-name-area" class="btn-primary">Save Area</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Manage Areas Modal -->
+    <div id="manage-areas-modal" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <i data-lucide="layers"></i>
+            <h3>Manage Interactive Areas</h3>
+          </div>
+          <button id="btn-close-manage-areas" class="btn-icon"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div id="areas-list" class="areas-list-container">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+        <div class="modal-footer modal-footer-split">
+          <button id="btn-clear-all-areas" class="btn-danger-pill">Clear All Areas</button>
+          <button id="btn-done-manage-areas" class="btn-primary">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+
+</html>
