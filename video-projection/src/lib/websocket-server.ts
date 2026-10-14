@@ -7,10 +7,10 @@ const iotConnections = new Set<WebSocket>();
 
 // Video state management for IoT controllers
 let currentVideoState = {
-  action: 'stop' as 'play' | 'pause' | 'stop',
+  action: 'stop' as 'play' | 'pause' | 'stop' | 'swap',
   videoUrl: '' as string | undefined,
   productName: '' as string | undefined,
-  productId: '' as string | undefined,
+  productId: '' as string | number | undefined,
   timestamp: Date.now()
 };
 
@@ -106,10 +106,10 @@ export function initializeWebSocketServer(server: any) {
 
 // Function to broadcast video commands to all connected IoT controllers
 export function broadcastToIoTControllers(command: {
-  action: 'play' | 'pause' | 'stop';
+  action: 'play' | 'pause' | 'stop' | 'swap';
   videoUrl?: string;
   productName?: string;
-  productId?: string;
+  productId?: string | number;
 }) {
   // Update current state
   currentVideoState = {
