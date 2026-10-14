@@ -55,6 +55,7 @@ export default function Product3D({
                                   }: Product3DProps) {
     const meshRef = useRef<Mesh>(null);
     const groupRef = useRef<any>(null);
+    const hasInitializedTransformRef = useRef(false);
     const lastFrameTimeRef = useRef<number>(0);
     const [hovered, setHovered] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
@@ -146,6 +147,12 @@ export default function Product3D({
             const targetY = position[1];
             const targetZ = position[2];
 
+            if (!hasInitializedTransformRef.current) {
+                groupRef.current.position.set(targetX, targetY, targetZ);
+                groupRef.current.rotation.set(rotation[0], rotation[1], rotation[2]);
+                hasInitializedTransformRef.current = true;
+            }
+
             const currentX = groupRef.current.position.x;
             const currentY = groupRef.current.position.y;
             const currentZ = groupRef.current.position.z;
@@ -172,7 +179,8 @@ export default function Product3D({
             // Smooth rotation interpolation
             const targetRotationY = rotation[1];
             const currentRotationY = groupRef.current.rotation.y;
-            const rotationDelta = (targetRotationY - currentRotationY) * springStrength * delta;
+            const rawRotationDelta = targetRotationY - currentRotationY;
+            const rotationDelta = Math.atan2(Math.sin(rawRotationDelta), Math.cos(rawRotationDelta)) * springStrength * delta;
             groupRef.current.rotation.y += rotationDelta * damping;
 
             // Swipe-up animation
@@ -223,7 +231,7 @@ export default function Product3D({
     });
 
     return (
-        <group position={position} rotation={rotation} ref={groupRef}>
+        <group ref={groupRef}>
             {/* Main 3D Model with gesture detection */}
             <mesh
                 ref={meshRef}

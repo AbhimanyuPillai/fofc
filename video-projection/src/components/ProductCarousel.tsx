@@ -37,6 +37,11 @@ export default function ProductCarousel() {
     const containerRef = useRef<HTMLDivElement>(null);
     const productsRef = useRef<Product[]>([]);
     const pendingProductId = useRef<number | null>(null);
+    const selectedIndexRef = useRef(0);
+
+    useEffect(() => {
+        selectedIndexRef.current = selectedIndex;
+    }, [selectedIndex]);
 
     // Initialize audio context on component mount
     useEffect(() => {
@@ -74,11 +79,13 @@ export default function ProductCarousel() {
         }
 
         pendingProductId.current = null;
+        if (index === selectedIndexRef.current) return;
+        selectedIndexRef.current = index;
         setSelectedIndex(index);
         setShowDetails(false);
         setShowVideoControls(false);
         setIsPlaying(false);
-        setAnimationsEnabled(false);
+        setAnimationsEnabled(true);
         setIsRotating(true);
         window.setTimeout(() => setIsRotating(false), 300);
     }, []);
@@ -323,6 +330,7 @@ export default function ProductCarousel() {
         }
 
         soundSystem.play('swipe');
+        selectedIndexRef.current = id;
         setIsRotating(true);
         setSelectedIndex(id);
 
