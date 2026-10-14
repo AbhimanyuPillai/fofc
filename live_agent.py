@@ -387,6 +387,19 @@ def latch_hardware_product(product_id: int, source: str, send_to_projection: boo
     return True
 
 
+def on_projection_product_selected(product_id: int) -> bool:
+    """Mirror carousel selection into agent context without sending it back."""
+    with pointed_board_lock:
+        if current_pointed_product_id == int(product_id):
+            return False
+    applied = latch_hardware_product(
+        int(product_id), "projection carousel", send_to_projection=False
+    )
+    if not applied:
+        print(f"[PROJECTION SYNC] Could not load product ID {product_id} into agent context")
+    return applied
+
+
 def handle_video_request(text: str, source: str) -> Optional[str]:
     """Queue an explicit play/pause/stop request and return truthful LLM guidance."""
     intent = projection_bridge.detect_video_intent(text)
@@ -1319,6 +1332,7 @@ def stream_brain_to_voice(user_text: str):
 def main():
     global is_agent_speaking, interrupt_requested, state, last_interaction_time
 
+    projection_bridge.set_selection_callback(on_projection_product_selected)
     projection_bridge.start()
 
     try:

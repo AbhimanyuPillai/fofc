@@ -1,23 +1,37 @@
 """Non-blocking link from pointed product IDs to the video-projection app."""
 
+import asyncio
+import json
 import os
 import queue
 import re
 import threading
 import time
 from typing import Any, Dict, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
+import websockets
 
 
 PROJECTION_BASE_URL = os.environ.get("VIDEO_PROJECTION_URL", "http://127.0.0.1:3000").rstrip("/")
 CATALOG_URL = f"{PROJECTION_BASE_URL}/api/products"
 VIDEO_CONTROL_URL = f"{PROJECTION_BASE_URL}/api/video-control"
+_projection_url = urlsplit(PROJECTION_BASE_URL)
+PROJECTION_WS_URL = urlunsplit((
+    "wss" if _projection_url.scheme == "https" else "ws",
+    _projection_url.netloc,
+    "/api/video-control/ws",
+    "",
+    "",
+))
 
 _catalog_lock = threading.Lock()
 _catalog_by_id: Dict[int, Dict[str, Any]] = {}
 _play_queue: "queue.Queue[tuple[str, Optional[int]]]" = queue.Queue(maxsize=32)
 _started = False
+_selection_callback = None
+_selection_callback_lock = threading.Lock()
 
 # Likely speech-to-text renderings for the current table labels. Keep these
 # keyed by the normalized product name so catalog IDs remain dynamic. New
@@ -75,6 +89,93 @@ def get_product(product_id: Optional[int]) -> Optional[Dict[str, Any]]:
     with _catalog_lock:
         product = _catalog_by_id.get(product_id)
         return dict(product) if product else None
+
+
+def set_selection_callback(callback) -> None:
+    """Register the agent callback for product selections made in the carousel."""
+    global _selection_callback
+    with _selection_callback_lock:
+        _selection_callback = callback
+
+
+def _dispatch_projection_selection(state: Dict[str, Any], event_type: str) -> None:
+    """Resolve and forward a valid product selection without echoing it back."""
+    raw_product_id = state.get("productId")
+    if (raw_product_id is None or isinstance(raw_product_id, bool) or
+            (isinstance(raw_product_id, float) and not raw_product_id.is_integer())):
+        return
+    try:
+        product_id = int(raw_product_id)
+    except (TypeError, ValueError):
+        return
+
+    product = get_product(product_id)
+    if not product:
+        refresh_product_catalog()
+        product = get_product(product_id)
+    if not product:
+        print(f"[PROJECTION SYNC] Ignoring unknown product ID {product_id} from {event_type}")
+        return
+
+    with _selection_callback_lock:
+        callback = _selection_callback
+    if callback is None:
+        return
+    try:
+        if callback(product_id):
+            print(
+                f"[PROJECTION SYNC] Active board updated from carousel: "
+                f"{product.get('name', f'Product {product_id}')} (product ID {product_id})"
+            )
+    except Exception as exc:
+        print(f"[PROJECTION SYNC] Could not apply product ID {product_id}: {exc}")
+
+
+async def _projection_selection_listener() -> None:
+    """Listen for carousel state snapshots and product changes, reconnecting as needed."""
+    retry_delay = 1.0
+    while True:
+        try:
+            async with websockets.connect(
+                PROJECTION_WS_URL,
+                ping_interval=20,
+                ping_timeout=20,
+                open_timeout=3,
+            ) as websocket:
+                print(f"[PROJECTION SYNC] Connected to {PROJECTION_WS_URL}")
+                retry_delay = 1.0
+                async for raw_message in websocket:
+                    try:
+                        message = json.loads(raw_message)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                    if not isinstance(message, dict):
+                        continue
+
+                    if message.get("type") == "connection":
+                        current_state = message.get("currentState")
+                        event_type = "connection snapshot"
+                    elif message.get("type") == "video-control":
+                        current_state = message
+                        event_type = str(message.get("action") or "video-control event")
+                    else:
+                        continue
+
+                    if isinstance(current_state, dict):
+                        _dispatch_projection_selection(current_state, event_type)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(f"[PROJECTION SYNC] WebSocket unavailable: {exc}; retrying in {retry_delay:.0f}s")
+            await asyncio.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, 15.0)
+
+
+def _projection_selection_worker() -> None:
+    try:
+        asyncio.run(_projection_selection_listener())
+    except Exception as exc:
+        print(f"[PROJECTION SYNC] Listener stopped: {exc}")
 
 
 def _product_aliases(product: Dict[str, Any]) -> set[str]:
@@ -200,6 +301,11 @@ def start() -> None:
     _started = True
     threading.Thread(target=_catalog_worker, daemon=True, name="ProjectionCatalogWorker").start()
     threading.Thread(target=_play_worker, daemon=True, name="ProjectionCommandWorker").start()
+    threading.Thread(
+        target=_projection_selection_worker,
+        daemon=True,
+        name="ProjectionSelectionListener",
+    ).start()
 
 
 def point_to_product(product_id: Optional[int]) -> bool:
