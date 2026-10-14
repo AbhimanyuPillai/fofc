@@ -629,20 +629,79 @@ SOS_BANDPASS = butter(4, [300, 3400], btype='bandpass', fs=SAMPLE_RATE, output='
 
 vad_iterator = None
 
-# Interruption tracking state
-consecutive_speech_frames = 0
-# 5 frames * 32ms (CHUNK_SIZE 512 / 16000) = 160ms of sustained speech required
-INTERRUPT_FRAME_REQUIREMENT = 5  
+# Barge-in is deliberately stricter than ordinary speech detection: the voice
+# must be clear, loud relative to the learned room floor, and sustained.
+interrupt_evidence = collections.deque(maxlen=10)
+interrupt_noise_floor_rms = 0.003
+INTERRUPT_MIN_TOTAL_RMS = 0.025
+INTERRUPT_MIN_VOCAL_RMS = 0.015
+INTERRUPT_NOISE_FLOOR_MULTIPLIER = 2.5
+INTERRUPT_VAD_THRESHOLD = 0.70
+INTERRUPT_REQUIRED_FRAMES = 6  # 6 of 10 frames, about 320 ms at 16 kHz.
+NOISE_FLOOR_MAX_RMS = 0.025
 
-def is_vocal_energy_present(indata: np.ndarray) -> bool:
-    """Calculates RMS energy strictly within human vocal frequencies."""
-    filtered_audio = sosfilt(SOS_BANDPASS, indata.flatten())
-    vocal_rms = float(np.sqrt(np.mean(filtered_audio**2)))
-    # Vocal energy must stand out above typical background rumble
-    return vocal_rms > 0.045
+def measure_vocal_energy(indata: np.ndarray) -> tuple[float, float]:
+    """Return broadband and speech-band RMS for one normalized audio frame."""
+    flat = indata.flatten()
+    filtered_audio = sosfilt(SOS_BANDPASS, flat)
+    return (float(np.sqrt(np.mean(flat**2))),
+            float(np.sqrt(np.mean(filtered_audio**2))))
+
+
+barge_in_preroll = collections.deque(maxlen=10)
+barge_in_capture_frames = []
+barge_in_capture_active = False
+barge_in_silence_frames = 0
+barge_in_capture_done = threading.Event()
+BARGE_IN_SILENCE_FRAMES = int(0.70 * SAMPLE_RATE / CHUNK_SIZE)
+BARGE_IN_MAX_FRAMES = int(10 * SAMPLE_RATE / CHUNK_SIZE)
+
+
+def reset_barge_in_capture():
+    global interrupt_requested, barge_in_capture_frames
+    global barge_in_capture_active, barge_in_silence_frames
+    interrupt_requested = False
+    interrupt_evidence.clear()
+    barge_in_preroll.clear()
+    barge_in_capture_frames = []
+    barge_in_capture_active = False
+    barge_in_silence_frames = 0
+    barge_in_capture_done.clear()
+
+
+def finish_barge_in_capture(timeout: float = 10.5):
+    """Queue only captured interruption speech for the normal ASR loop."""
+    global barge_in_capture_frames, barge_in_capture_active, barge_in_silence_frames
+    if not interrupt_requested:
+        while not audio_queue.empty():
+            try:
+                audio_queue.get_nowait()
+            except queue.Empty:
+                break
+        reset_barge_in_capture()
+        return
+    if barge_in_capture_active and not barge_in_capture_done.wait(timeout):
+        # Bound capture time if a noisy room keeps VAD continuously active.
+        barge_in_capture_active = False
+        barge_in_capture_done.set()
+    captured = list(barge_in_capture_frames)
+    barge_in_capture_frames = []
+    barge_in_capture_active = False
+    barge_in_silence_frames = 0
+    barge_in_preroll.clear()
+    interrupt_evidence.clear()
+    while not audio_queue.empty():
+        try:
+            audio_queue.get_nowait()
+        except queue.Empty:
+            break
+    for captured_frame in captured:
+        audio_queue.put(captured_frame)
+    barge_in_capture_done.clear()
 
 def audio_callback(indata, frames, time_info, status, input_sample_rate=SAMPLE_RATE):
-    global interrupt_requested, is_agent_speaking, consecutive_speech_frames
+    global interrupt_requested, is_agent_speaking, interrupt_noise_floor_rms
+    global barge_in_capture_frames, barge_in_capture_active, barge_in_silence_frames
 
     audio_frame = indata.copy()
     if input_sample_rate != SAMPLE_RATE:
@@ -655,30 +714,63 @@ def audio_callback(indata, frames, time_info, status, input_sample_rate=SAMPLE_R
         audio_frame = np.pad(audio_frame, ((0, CHUNK_SIZE - len(audio_frame)), (0, 0)))
     audio_queue.put(audio_frame)
 
-    if is_agent_speaking:
-        # Check 1: Is there strong vocal-band energy?
-        if is_vocal_energy_present(audio_frame):
-            # Check 2: Run through Silero VAD tensor (neural vocal chord check)
-            audio_tensor = torch.from_numpy(audio_frame.squeeze())
-            with torch.no_grad():
-                speech_prob = vad_model(audio_tensor, SAMPLE_RATE).item()
+    total_rms, vocal_rms = measure_vocal_energy(audio_frame)
+    if not is_agent_speaking:
+        # Learn only from quiet frames, so ordinary speech does not raise the
+        # threshold and make later interruption impossible.
+        if total_rms < max(0.015, interrupt_noise_floor_rms * 2.0):
+            interrupt_noise_floor_rms = min(
+                NOISE_FLOOR_MAX_RMS,
+                max(0.001, 0.98 * interrupt_noise_floor_rms + 0.02 * vocal_rms),
+            )
+        interrupt_evidence.clear()
+        return
 
-            # Requires high neural speech confidence (> 0.65)
-            if speech_prob > 0.65:
-                consecutive_speech_frames += 1
-            else:
-                consecutive_speech_frames = max(0, consecutive_speech_frames - 1)
-        else:
-            consecutive_speech_frames = max(0, consecutive_speech_frames - 1)
+    if barge_in_capture_active:
+        barge_in_capture_frames.append(audio_frame.copy())
+        audio_tensor = torch.from_numpy(audio_frame.squeeze())
+        with torch.no_grad():
+            speech_prob = vad_model(audio_tensor, SAMPLE_RATE).item()
+        barge_in_silence_frames = (
+            barge_in_silence_frames + 1 if speech_prob < 0.18 else 0
+        )
+        if (barge_in_silence_frames >= BARGE_IN_SILENCE_FRAMES or
+                len(barge_in_capture_frames) >= BARGE_IN_MAX_FRAMES):
+            barge_in_capture_active = False
+            barge_in_capture_done.set()
+        return
 
-        # Only interrupt if speech was sustained across 5 consecutive frames (~160ms)
-        if consecutive_speech_frames >= INTERRUPT_FRAME_REQUIREMENT:
-            print("\n[VOICE INTERRUPT DETECTED: Speech barge-in confirmed]")
-            interrupt_requested = True
-            player.clear()
-            consecutive_speech_frames = 0
+    barge_in_preroll.append(audio_frame.copy())
+    if interrupt_requested:
+        return
+
+    energy_gate = max(
+        INTERRUPT_MIN_VOCAL_RMS,
+        interrupt_noise_floor_rms * INTERRUPT_NOISE_FLOOR_MULTIPLIER,
+    )
+    speech_candidate = total_rms >= INTERRUPT_MIN_TOTAL_RMS and vocal_rms >= energy_gate
+    if speech_candidate:
+        audio_tensor = torch.from_numpy(audio_frame.squeeze())
+        with torch.no_grad():
+            speech_prob = vad_model(audio_tensor, SAMPLE_RATE).item()
+        interrupt_evidence.append(speech_prob >= INTERRUPT_VAD_THRESHOLD)
     else:
-        consecutive_speech_frames = 0
+        interrupt_evidence.append(False)
+
+    if sum(interrupt_evidence) >= INTERRUPT_REQUIRED_FRAMES:
+        print(
+            "\n[VOICE INTERRUPT DETECTED: sustained loud, clear speech; "
+            f"RMS={total_rms:.3f}, speech-band={vocal_rms:.3f}, "
+            f"noise-floor={interrupt_noise_floor_rms:.3f}]"
+        )
+        interrupt_requested = True
+        barge_in_capture_frames = list(barge_in_preroll)
+        barge_in_capture_active = True
+        barge_in_silence_frames = 0
+        barge_in_capture_done.clear()
+        barge_in_preroll.clear()
+        interrupt_evidence.clear()
+        player.clear()
 
 # Decoupled Audio Playback Worker
 def audio_player_worker():
@@ -811,6 +903,7 @@ def clear_all_queues():
 
 def speak_direct(text: str, spoken_text: Optional[str] = None):
     global is_agent_speaking, interrupt_requested
+    reset_barge_in_capture()
     is_agent_speaking = True
     clean_text = clean_display_text(text)
     speech_source = spoken_text if spoken_text is not None else text
@@ -832,13 +925,9 @@ def speak_direct(text: str, spoken_text: Optional[str] = None):
     finally:
         if interrupt_requested:
             clear_playback_queue()
+        finish_barge_in_capture()
         is_agent_speaking = False
         time.sleep(0.1)
-        while not audio_queue.empty():
-            try:
-                audio_queue.get_nowait()
-            except queue.Empty:
-                break
 
 # ==========================================
 # AGENT-VISION PRESENCE STATE & IPC BRIDGE
@@ -1108,8 +1197,8 @@ def start_presence_bridge(port: int = 8766):
 def stream_brain_to_voice(user_text: str):
     global dialog_turns, is_agent_speaking, interrupt_requested, primary_user, visitor_queue
 
+    reset_barge_in_capture()
     is_agent_speaking = True
-    interrupt_requested = False
     clear_all_queues()
     dashboard_server.set_state("SPEAKING")
 
@@ -1203,14 +1292,10 @@ def stream_brain_to_voice(user_text: str):
     finally:
         if interrupt_requested:
             clear_all_queues()
+        finish_barge_in_capture()
         is_agent_speaking = False
         dashboard_server.set_state("ACTIVE")
         time.sleep(0.15)
-        while not audio_queue.empty():
-            try:
-                audio_queue.get_nowait()
-            except queue.Empty:
-                break
 
 def main():
     global is_agent_speaking, interrupt_requested, state, last_interaction_time
