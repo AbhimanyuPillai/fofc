@@ -61,40 +61,65 @@ def make_input_stream(device_index=None):
     return sd.InputStream(device=device_index, samplerate=input_rate, channels=1,
                           dtype="float32", blocksize=input_blocksize, callback=callback)
 
-def get_default_mic_index() -> Optional[int]:
-    """Choose a usable microphone using the Ubuntu/PortAudio device list."""
-    try:
-        devices = list(sd.query_devices())
-        preferred_name = os.environ.get("JARVIS_MIC_DEVICE_NAME", "").strip().lower()
-        candidates = []
-        if preferred_name:
-            candidates.extend(
-                idx for idx, dev in enumerate(devices)
-                if dev.get("max_input_channels", 0) > 0
-                and preferred_name in dev.get("name", "").lower()
-            )
+def _mic_device_records():
+    """Return current input devices with their stable host API labels."""
+    devices = list(sd.query_devices())
+    host_apis = list(sd.query_hostapis())
+    records = []
+    for index, device in enumerate(devices):
+        if int(device.get("max_input_channels", 0)) <= 0:
+            continue
+        host_index = int(device.get("hostapi", -1))
+        host_name = host_apis[host_index].get("name", "") if 0 <= host_index < len(host_apis) else ""
+        name = str(device.get("name", f"Input device {index}")).strip()
+        if any(term in name.lower() for term in ("stereo mix", "sound mapper", "primary sound",
+                                                  "loopback", "monitor of", ".monitor")):
+            continue
+        records.append({"index": index, "name": name, "host_api": str(host_name).strip(), "device": device})
+    return records, host_apis
 
+
+def get_default_mic_candidates():
+    """Prefer the active desktop audio backend, then the OS's global default."""
+    try:
+        records, host_apis = _mic_device_records()
+        by_index = {record["index"]: record for record in records}
+        preferred_terms = ("wasapi",) if sys.platform.startswith("win") else ("pulse", "pipewire")
+        preferred_api_indexes = [i for i, api in enumerate(host_apis)
+                                 if any(term in str(api.get("name", "")).lower() for term in preferred_terms)]
+        candidates = []
+        preferred_name = os.environ.get("JARVIS_MIC_DEVICE_NAME", "").strip().casefold()
+        if preferred_name:
+            candidates.extend(record["index"] for record in records
+                              if preferred_name in record["name"].casefold())
+        for api_index in preferred_api_indexes:
+            default_index = host_apis[api_index].get("default_input_device", -1)
+            try:
+                default_index = int(default_index)
+            except (TypeError, ValueError):
+                continue
+            if default_index in by_index:
+                candidates.append(default_index)
         try:
-            default_input = sd.default.device[0]
-            if default_input is not None and int(default_input) >= 0:
-                candidates.append(int(default_input))
+            global_default = sd.default.device[0]
+            if global_default is not None and int(global_default) in by_index:
+                candidates.append(int(global_default))
         except (TypeError, ValueError, IndexError):
             pass
+        candidates.extend(record["index"] for record in records)
+        return list(dict.fromkeys(candidates))
+    except Exception as exc:
+        print(f"[AUDIO DEVICE QUERY ERROR]: {exc}")
+        return []
 
-        candidates.extend(
-            idx for idx, dev in enumerate(devices)
-            if dev.get("max_input_channels", 0) > 0 and idx not in candidates
-        )
-        for idx in candidates:
-            try:
-                get_input_stream_config(idx)
-                return idx
-            except Exception:
-                continue
 
-    except Exception as e:
-        print(f"[AUDIO DEVICE QUERY ERROR]: {e}")
-
+def get_default_mic_index() -> Optional[int]:
+    for index in get_default_mic_candidates():
+        try:
+            get_input_stream_config(index)
+            return index
+        except Exception:
+            continue
     return None
 
 # ==========================================
@@ -293,6 +318,8 @@ pointed_board_lock = threading.Lock()
 audio_stream_lock = threading.Lock()
 active_audio_stream = None
 capture_device = None
+capture_device_name = ""
+capture_device_host_api = ""
 
 def get_active_pointed_context() -> Optional[str]:
     with pointed_board_lock:
@@ -395,81 +422,143 @@ def save_device_config(cfg: dict):
     except Exception as e:
         print(f"[DEVICE CONFIG ERROR] Could not save config: {e}")
 
-def resolve_mic_device(device_name: str = "", device_id: str = "") -> Optional[int]:
+def resolve_mic_candidates(device_name: str = "", host_api_name: str = "", device_index=None,
+                           include_defaults: bool = True):
+    """Resolve a volatile PortAudio index from the current device identity."""
     try:
-        devices = sd.query_devices()
-        if device_name:
-            clean = device_name.lower().strip()
-            for idx, dev in enumerate(devices):
-                if dev.get("max_input_channels", 0) > 0 and dev.get("name", "").lower().strip() == clean:
-                    return idx
-            for idx, dev in enumerate(devices):
-                if dev.get("max_input_channels", 0) > 0 and clean in dev.get("name", "").lower():
-                    return idx
-            words = [w for w in clean.split() if len(w) > 3 and w not in ("microphone", "default")]
-            if words:
-                for idx, dev in enumerate(devices):
-                    if dev.get("max_input_channels", 0) > 0:
-                        dev_n = dev.get("name", "").lower()
-                        if any(w in dev_n for w in words):
-                            return idx
-    except Exception as e:
-        print(f"[AUDIO DEVICE RESOLVE ERROR]: {e}")
-    return None
-
-def switch_audio_device(device_name: str = "", device_id: str = "", device_index=None):
-    global capture_device, active_audio_stream
-    target_idx = None
-    if device_index is not None:
+        records, _ = _mic_device_records()
+        by_index = {record["index"]: record for record in records}
+        clean_name = str(device_name or "").strip().casefold()
+        clean_api = str(host_api_name or "").strip().casefold()
+        candidates = []
         try:
-            requested_index = int(device_index)
-            requested_device = sd.query_devices(requested_index)
-            if requested_device.get("max_input_channels", 0) > 0:
-                target_idx = requested_index
-        except (TypeError, ValueError, IndexError, sd.PortAudioError):
-            target_idx = None
-    else:
-        # Compatibility for messages from older dashboard clients.
-        target_idx = resolve_mic_device(device_name, device_id)
-        if target_idx is None and not device_name:
-            target_idx = get_default_mic_index()
+            hinted = by_index.get(int(device_index)) if device_index is not None else None
+        except (TypeError, ValueError):
+            hinted = None
+        if hinted and (not clean_name or hinted["name"].casefold() == clean_name):
+            if not clean_api or hinted["host_api"].casefold() == clean_api:
+                candidates.append(hinted["index"])
 
-    if target_idx is None:
-        message = f"Could not select microphone: {device_name or device_index or 'unknown device'}"
-        print(f"[AUDIO CAPTURE WARNING] {message}")
-        dashboard_server.broadcast_transcript("SYSTEM", message)
-        return False
+        if clean_name:
+            exact = [record for record in records if record["name"].casefold() == clean_name]
+            if not exact:
+                exact = [record for record in records if clean_name in record["name"].casefold()]
+            if clean_api:
+                exact.sort(key=lambda r: r["host_api"].casefold() != clean_api)
+            else:
+                preferred = get_default_mic_candidates()
+                exact.sort(key=lambda r: preferred.index(r["index"]) if r["index"] in preferred else len(preferred))
+            candidates.extend(record["index"] for record in exact)
+        elif hinted:
+            candidates.append(hinted["index"])
+
+        if include_defaults:
+            candidates.extend(get_default_mic_candidates())
+        return list(dict.fromkeys(candidates))
+    except Exception as exc:
+        print(f"[AUDIO DEVICE RESOLVE ERROR]: {exc}")
+        return []
+
+
+def get_mic_identity(device_index=None):
+    global capture_device_name, capture_device_host_api
+    index = device_index if device_index is not None else capture_device
+    try:
+        records, _ = _mic_device_records()
+        if device_index is None and capture_device_name:
+            active_record = next((item for item in records
+                                  if item["name"].casefold() == capture_device_name.casefold()
+                                  and item["host_api"].casefold() == capture_device_host_api.casefold()), None)
+            if active_record:
+                return {"device_index": active_record["index"], "device_name": capture_device_name,
+                        "host_api": capture_device_host_api}
+            return {"device_index": None, "device_name": capture_device_name,
+                    "host_api": capture_device_host_api}
+        record = next((item for item in records if item["index"] == index), None)
+        if record:
+            capture_device_name = record["name"]
+            capture_device_host_api = record["host_api"]
+            return {"device_index": index, "device_name": record["name"], "host_api": record["host_api"]}
+    except Exception:
+        pass
+    if capture_device_name:
+        return {"device_index": index, "device_name": capture_device_name,
+                "host_api": capture_device_host_api}
+    return {"device_index": index, "device_name": "System Default", "host_api": ""}
+
+
+def persist_active_mic(device_index=None):
+    identity = get_mic_identity(device_index)
+    index = identity["device_index"]
+    stable_id = f"{identity['host_api']}::{identity['device_name']}".strip(":")
+    save_device_config({
+        "agent_mic_name": identity["device_name"],
+        "agent_mic_host_api": identity["host_api"],
+        "agent_mic_device": stable_id,
+        "agent_mic_index": index,
+        "type": "agent_mic",
+        "device_id": stable_id,
+        "device_name": identity["device_name"],
+        "device_index": index
+    })
+    dashboard_server.save_camera_config({
+        "audio_device_index": index,
+        "audio_device_name": identity["device_name"],
+        "audio_device_host_api": identity["host_api"]
+    })
+    return identity
+
+
+def switch_audio_device(device_name: str = "", device_id: str = "", device_index=None,
+                       host_api_name: str = "", request_id=None):
+    global capture_device, capture_device_name, capture_device_host_api, active_audio_stream
+    candidates = resolve_mic_candidates(device_name, host_api_name, device_index,
+                                        include_defaults=not bool(str(device_name or "").strip()))
+    requested_label = device_name or (f"device {device_index}" if device_index is not None else "system default")
+    failure = None
 
     with audio_stream_lock:
-        try:
-            replacement_stream = make_input_stream(target_idx)
-            replacement_stream.start()
-            if active_audio_stream:
-                try:
-                    active_audio_stream.stop()
-                    active_audio_stream.close()
-                except Exception:
-                    pass
-            capture_device = target_idx
-            active_audio_stream = replacement_stream
-            dname = device_name or "System Default"
+        for target_idx in candidates:
+            replacement_stream = None
             try:
-                dname = sd.query_devices(target_idx).get("name", dname)
-            except Exception:
-                pass
-            save_device_config({
-                "agent_mic_name": dname,
-                "agent_mic_device": device_id,
-                "agent_mic_index": target_idx
-            })
-            dashboard_server.save_camera_config({"audio_device_index": target_idx})
-            print(f"[AUDIO CAPTURE] Switched microphone to: [{target_idx}] {dname}")
-            dashboard_server.broadcast_transcript("SYSTEM", f"Switched microphone to: {dname}")
-            return True
-        except Exception as e:
-            print(f"[AUDIO CAPTURE RESTART WARNING] Failed to switch to [{target_idx}]: {e}")
-            dashboard_server.broadcast_transcript("SYSTEM", f"Could not switch microphone: {e}")
-            return False
+                replacement_stream = make_input_stream(target_idx)
+                replacement_stream.start()
+                previous_stream = active_audio_stream
+                active_audio_stream = replacement_stream
+                capture_device = target_idx
+                identity = get_mic_identity(target_idx)
+                capture_device_name = identity["device_name"]
+                capture_device_host_api = identity["host_api"]
+                if previous_stream:
+                    try:
+                        previous_stream.stop()
+                        previous_stream.close()
+                    except Exception:
+                        pass
+                persist_active_mic(target_idx)
+                print(f"[AUDIO CAPTURE] Switched microphone to: [{target_idx}] {identity['device_name']} ({identity['host_api']})")
+                message = f"Microphone active: {identity['device_name']} ({identity['host_api'] or 'system audio'})"
+                dashboard_server.broadcast_transcript("SYSTEM", message)
+                return {"type": "AUDIO_DEVICE_STATUS", "success": True, "request_id": request_id,
+                        **identity, "message": message}
+            except Exception as exc:
+                failure = exc
+                if replacement_stream is not None:
+                    try:
+                        replacement_stream.close()
+                    except Exception:
+                        pass
+                print(f"[AUDIO CAPTURE RESTART WARNING] Failed to switch to [{target_idx}]: {exc}")
+
+        identity = get_mic_identity()
+        message = (f"Could not switch to {requested_label}; still using "
+                   f"{identity['device_name']} ({identity['host_api'] or 'system default'}).")
+        if failure:
+            message += f" {failure}"
+        print(f"[AUDIO CAPTURE WARNING] {message}")
+        dashboard_server.broadcast_transcript("SYSTEM", message)
+        return {"type": "AUDIO_DEVICE_STATUS", "success": False, "request_id": request_id,
+                **identity, "message": message}
 
 async def pointing_ws_handler(websocket):
     try:
@@ -499,7 +588,17 @@ async def pointing_ws_handler(websocket):
                 elif data.get("event") == "set_audio_device" or data.get("type") == "SET_AUDIO_DEVICE":
                     dev_id = data.get("device_id", "")
                     dev_name = data.get("device_name", "")
-                    switch_audio_device(device_name=dev_name, device_id=dev_id, device_index=data.get("device_index"))
+                    result = switch_audio_device(
+                        device_name=dev_name,
+                        device_id=dev_id,
+                        device_index=data.get("device_index"),
+                        host_api_name=data.get("host_api", ""),
+                        request_id=data.get("request_id")
+                    )
+                    try:
+                        await websocket.send(json.dumps(result))
+                    except Exception:
+                        pass
             except Exception:
                 pass
     except Exception:
@@ -1166,41 +1265,51 @@ def main():
     MIN_AUDIO_RMS = 0.005
     ambient_noise_rms = 0.004
 
-    global capture_device, active_audio_stream
+    global capture_device, capture_device_name, capture_device_host_api, active_audio_stream
     saved_cfg = load_device_config()
     saved_cam_cfg = dashboard_server.load_camera_config()
-    saved_mic_name = saved_cfg.get("agent_mic_name")
-    saved_mic_id = saved_cfg.get("agent_mic_device")
+    saved_mic_name = saved_cfg.get("agent_mic_name") or saved_cam_cfg.get("audio_device_name")
+    saved_mic_host_api = saved_cfg.get("agent_mic_host_api") or saved_cam_cfg.get("audio_device_host_api", "")
     saved_mic_idx = saved_cam_cfg.get("audio_device_index")
     capture_device = None
-    if saved_mic_idx is not None:
-        capture_device = saved_mic_idx
-    elif saved_mic_name or saved_mic_id:
-        capture_device = resolve_mic_device(saved_mic_name or "", saved_mic_id or "")
-
-    if capture_device is None:
-        capture_device = get_default_mic_index()
-
-    if capture_device is not None:
+    capture_device_name = ""
+    capture_device_host_api = ""
+    startup_candidates = resolve_mic_candidates(saved_mic_name or "", saved_mic_host_api, saved_mic_idx)
+    active_audio_stream = None
+    startup_error = None
+    for candidate_index in startup_candidates:
         try:
-            device_info = sd.query_devices(capture_device)
-            device_name = device_info.get("name", f"Device #{capture_device}")
-            print(f"[AUDIO CAPTURE] Confirmed active device: [{capture_device}] {device_name}")
-        except Exception:
-            print(f"[AUDIO CAPTURE] Confirmed active device index: [{capture_device}]")
-    else:
-        print("[AUDIO CAPTURE] Using default system audio input")
+            active_audio_stream = make_input_stream(candidate_index)
+            capture_device = candidate_index
+            identity = get_mic_identity(candidate_index)
+            capture_device_name = identity["device_name"]
+            capture_device_host_api = identity["host_api"]
+            break
+        except Exception as exc:
+            startup_error = exc
+            print(f"[AUDIO CAPTURE WARNING] Could not open [{candidate_index}]; trying another current input: {exc}")
 
+    if active_audio_stream is None:
+        try:
+            active_audio_stream = make_input_stream(None)
+            try:
+                default_index = sd.default.device[0]
+                capture_device = int(default_index) if default_index is not None and int(default_index) >= 0 else None
+            except (TypeError, ValueError, IndexError):
+                capture_device = None
+            identity = get_mic_identity(capture_device)
+            capture_device_name = identity["device_name"]
+            capture_device_host_api = identity["host_api"]
+            print(f"[AUDIO CAPTURE] Opened system default input: {capture_device_name} ({capture_device_host_api or 'default backend'})")
+        except Exception as exc:
+            raise RuntimeError(f"Could not open a microphone. Last selected-device error: {startup_error}; system-default error: {exc}") from exc
+
+    print(f"[AUDIO CAPTURE] Selected input: [{capture_device}] {capture_device_name} ({capture_device_host_api or 'system default'})")
     print("[STATUS: SLEEPING] Waiting for recognized user arrival, speech, or typed text...\n")
 
-    try:
-        active_audio_stream = make_input_stream(capture_device)
-    except Exception as e:
-        print(f"[AUDIO CAPTURE WARNING] Could not initialize device [{capture_device}]: {e}. Falling back to default system input.")
-        capture_device = None
-        active_audio_stream = make_input_stream(None)
-
     with active_audio_stream:
+        # Refresh both local config files only after the stream has opened successfully.
+        persist_active_mic(capture_device)
         while True:
             current_time = time.time()
 

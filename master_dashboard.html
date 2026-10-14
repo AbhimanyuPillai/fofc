@@ -1181,6 +1181,9 @@
     // AGENT WEBSOCKET FOR MICROPHONE CONTROL (:8765)
     let agentWs = null;
     const agentWsQueue = [];
+    let micSwitchRequestSequence = 0;
+    let pendingMicSwitchRequestId = null;
+    let pendingMicSwitch = false;
 
     function connectAgentWs() {
       try {
@@ -1190,6 +1193,12 @@
             const pkt = agentWsQueue.shift();
             try { agentWs.send(JSON.stringify(pkt)); } catch (e) {}
           }
+        };
+        agentWs.onmessage = (event) => {
+          try {
+            const status = JSON.parse(event.data);
+            if (status.type === 'AUDIO_DEVICE_STATUS') applyMicSwitchStatus(status);
+          } catch (e) {}
         };
         agentWs.onclose = () => {
           setTimeout(connectAgentWs, 3000);
@@ -1202,34 +1211,58 @@
       }
     }
 
-    function sendMicSwitchToAgent(deviceIndex, label) {
+    function sendMicSwitchToAgent(deviceIndex, deviceName, hostApi) {
+      const requestId = `${Date.now()}-${++micSwitchRequestSequence}`;
+      pendingMicSwitchRequestId = requestId;
+      pendingMicSwitch = true;
       const packet = {
         event: 'set_audio_device',
         device_index: Number(deviceIndex),
-        device_name: label
+        device_name: deviceName || '',
+        host_api: hostApi || '',
+        request_id: requestId
       };
       if (agentWs && agentWs.readyState === WebSocket.OPEN) {
         agentWs.send(JSON.stringify(packet));
       } else {
         agentWsQueue.push(packet);
       }
+      return requestId;
     }
 
-    // PERSIST DEVICE CONFIG VIA BACKEND REST API (:8088)
-    async function persistDeviceConfig(type, deviceId, deviceName, deviceIndex = null) {
-      try {
-        await fetch('http://127.0.0.1:8088/api/set_device', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: type,
-            device_id: deviceId,
-            device_name: deviceName || '',
-            ...(deviceIndex !== null ? { device_index: Number(deviceIndex) } : {})
-          })
-        });
-      } catch (e) {
-        // Non-blocking fallback
+    function applyMicSwitchStatus(status) {
+      if (status.request_id && pendingMicSwitchRequestId && status.request_id !== pendingMicSwitchRequestId) return;
+      pendingMicSwitch = false;
+      pendingMicSwitchRequestId = null;
+      const mic1 = document.getElementById('mic-select-1');
+      const mic2 = document.getElementById('mic-select-2');
+      const selectors = [mic1, mic2].filter(Boolean);
+      for (const sel of selectors) {
+        let option = Array.from(sel.options).find(opt =>
+          !opt.disabled &&
+          opt.dataset.deviceName === status.device_name &&
+          (!status.host_api || opt.dataset.hostApi === status.host_api));
+        if (!option) option = Array.from(sel.options).find(opt => !opt.disabled && opt.dataset.deviceName === status.device_name);
+        if (!option && status.device_index !== null && status.device_index !== undefined) {
+          option = Array.from(sel.options).find(opt => String(opt.value) === String(status.device_index));
+        }
+        if (!option && status.device_name && status.device_name !== 'System Default' &&
+            status.device_index !== null && status.device_index !== undefined) {
+          option = document.createElement('option');
+          option.value = String(status.device_index);
+          option.textContent = status.device_name;
+          option.dataset.deviceName = status.device_name;
+          option.dataset.hostApi = status.host_api || '';
+          sel.appendChild(option);
+        }
+        if (option) sel.value = option.value;
+      }
+      const active = selectors[0]?.selectedOptions[0];
+      if (active) {
+        localStorage.setItem('agent_mic_name', active.dataset.deviceName || active.textContent);
+        localStorage.setItem('agent_mic_host_api', active.dataset.hostApi || '');
+        localStorage.setItem('agent_mic_device', active.value);
+        localStorage.setItem('agent_mic_label', active.textContent);
       }
     }
 
@@ -1313,8 +1346,8 @@
 
     // Enumerate the same PortAudio devices used by live_agent.py so selected
     // device indexes map directly to the capture stream (browser IDs do not).
-    let lastSentMicIdentity = null;
     async function syncMediaSelectors() {
+      if (pendingMicSwitch) return;
       try {
         let backendConfig = {};
         try {
@@ -1325,13 +1358,14 @@
         const deviceRes = await fetch('http://127.0.0.1:8088/api/audio_devices');
         const deviceData = deviceRes.ok ? await deviceRes.json() : {};
         const audioDevices = Array.isArray(deviceData.devices) ? deviceData.devices : [];
-        const localMic = localStorage.getItem('agent_mic_device') || "";
-        const configuredMic = backendConfig.agent_mic_index ?? "";
-        const configuredName = (backendConfig.agent_mic_name || "").trim().toLowerCase();
-        const configuredByName = audioDevices.find(d => (d.name || "").trim().toLowerCase() === configuredName);
-        const localMicExists = audioDevices.some(d => String(d.index) === String(localMic));
-        const savedMic = configuredByName?.index ??
-          (configuredName ? "" : localMicExists ? localMic : configuredMic);
+        const configuredName = (backendConfig.agent_mic_name || localStorage.getItem('agent_mic_name') || '').trim().toLowerCase();
+        const configuredHostApi = (backendConfig.agent_mic_host_api || localStorage.getItem('agent_mic_host_api') || '').trim().toLowerCase();
+        const configuredByIdentity = audioDevices.find(d =>
+          (d.name || '').trim().toLowerCase() === configuredName &&
+          (!configuredHostApi || (d.host_api || '').trim().toLowerCase() === configuredHostApi));
+        const configuredByName = audioDevices.find(d => (d.name || '').trim().toLowerCase() === configuredName);
+        const selectedMic = configuredByIdentity || configuredByName || audioDevices.find(d => d.is_default) || audioDevices[0];
+        const configuredMicUnavailable = Boolean(configuredName && !configuredByIdentity && !configuredByName);
         const mic1 = document.getElementById('mic-select-1');
         const mic2 = document.getElementById('mic-select-2');
 
@@ -1351,25 +1385,26 @@
             opt.value = String(d.index);
             opt.textContent = d.display_name || `${d.name || 'Microphone'} [${d.index}]`;
             opt.title = opt.textContent;
+            opt.dataset.deviceName = d.name || '';
+            opt.dataset.hostApi = d.host_api || '';
             sel.appendChild(opt);
           });
-          const savedExists = audioDevices.some(d => String(d.index) === String(savedMic));
-          sel.value = savedExists ? String(savedMic) : String(audioDevices[0].index);
+          if (configuredMicUnavailable) {
+            const unavailable = document.createElement('option');
+            unavailable.value = `unavailable:${configuredName}`;
+            unavailable.textContent = `Unavailable — ${backendConfig.agent_mic_name || localStorage.getItem('agent_mic_name')}`;
+            unavailable.dataset.deviceName = backendConfig.agent_mic_name || localStorage.getItem('agent_mic_name') || '';
+            unavailable.dataset.hostApi = backendConfig.agent_mic_host_api || localStorage.getItem('agent_mic_host_api') || '';
+            unavailable.disabled = true;
+            sel.appendChild(unavailable);
+            sel.value = unavailable.value;
+          } else {
+            sel.value = selectedMic ? String(selectedMic.index) : String(audioDevices[0].index);
+          }
         });
 
-        // Ensure active microphone is propagated to live_agent.py
-        const activeMicSel = mic1 || mic2;
-        if (activeMicSel && activeMicSel.value) {
-          const activeMicOption = activeMicSel.selectedOptions[0];
-          const activeMicLabel = activeMicOption ? activeMicOption.text : "";
-          localStorage.setItem('agent_mic_device', activeMicSel.value);
-          localStorage.setItem('agent_mic_label', activeMicLabel);
-          const identity = `${activeMicSel.value}|${activeMicLabel}`;
-          if (identity !== lastSentMicIdentity) {
-            sendMicSwitchToAgent(activeMicSel.value, activeMicLabel);
-            lastSentMicIdentity = identity;
-          }
-        }
+        // Refreshing the device list never changes the active stream. Mic switches
+        // are sent only after an explicit user selection.
       } catch (err) {
         console.error("Device enumeration failed:", err);
       }
@@ -1412,18 +1447,15 @@
       function handleMicChange(e) {
         const devId = e.target.value;
         const opt = e.target.selectedOptions[0];
-        const label = opt ? opt.text : "";
-        localStorage.setItem('agent_mic_device', devId);
-        localStorage.setItem('agent_mic_label', label);
+        const name = opt?.dataset.deviceName || opt?.text || '';
+        const hostApi = opt?.dataset.hostApi || '';
 
         // Sync sibling dropdown
         if (mic1 && mic1.value !== devId) mic1.value = devId;
         if (mic2 && mic2.value !== devId) mic2.value = devId;
 
-        // Propagate to live_agent.py and persist config
-        sendMicSwitchToAgent(devId, label);
-        lastSentMicIdentity = `${devId}|${label}`;
-        persistDeviceConfig('agent_mic', devId, label, Number(devId));
+        // Persist only after the agent confirms the replacement stream opened.
+        sendMicSwitchToAgent(devId, name, hostApi);
       }
 
       if (mic1) mic1.addEventListener('change', handleMicChange);

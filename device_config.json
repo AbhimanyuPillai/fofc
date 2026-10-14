@@ -1,8 +1,10 @@
 {
-  "agent_mic_name": "Microphone",
-  "agent_mic_device": "",
-  "agent_mic_index": 1,
+  "agent_mic_name": "Microphone Array (Realtek(R) Audio)",
+  "agent_mic_device": "Windows WASAPI::Microphone Array (Realtek(R) Audio)",
+  "agent_mic_index": 9,
   "type": "agent_mic",
-  "device_id": "",
-  "device_name": "Microphone"
+  "device_id": "Windows WASAPI::Microphone Array (Realtek(R) Audio)",
+  "device_name": "Microphone Array (Realtek(R) Audio)",
+  "device_index": 9,
+  "agent_mic_host_api": "Windows WASAPI"
 }

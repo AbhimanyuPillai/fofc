@@ -364,7 +364,8 @@ async def get_audio_devices():
         for item in (primary, secondary):
             if item:
                 devices.append({"index": item["index"], "name": item["name"],
-                                "display_name": item["name"]})
+                                "display_name": item["name"], "host_api": item["host_api"],
+                                "is_default": item is primary})
         return {"devices": devices}
     except Exception as e:
         logging.getLogger(__name__).warning("Could not enumerate audio input devices: %s", e)

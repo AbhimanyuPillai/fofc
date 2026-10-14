@@ -1,5 +1,7 @@
 {
   "facecam_index": 1,
   "handcam_index": 1,
-  "audio_device_index": 1
+  "audio_device_index": 9,
+  "audio_device_name": "Microphone Array (Realtek(R) Audio)",
+  "audio_device_host_api": "Windows WASAPI"
 }
