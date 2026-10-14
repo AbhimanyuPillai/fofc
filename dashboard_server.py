@@ -62,7 +62,7 @@ def set_state(new_state: str):
         _dispatch_remote_event(ev)
 
 def set_hardware_focus(board: Optional[str], product_id: Optional[int] = None):
-    """Highlights active hardware card on dashboard ('esp32', 'jetson', 'stm32', 'arduino', or None)."""
+    """Reports which catalog product is currently in focus on the dashboard."""
     global _current_focus_board
     _current_focus_board = board
     ev = {"type": "focus", "board": board, "productId": product_id, "timestamp": time.time()}
@@ -290,6 +290,84 @@ async def post_set_device(payload: dict):
 @app.get("/api/device_config")
 async def get_device_config():
     return load_device_config()
+
+@app.get("/api/audio_devices")
+async def get_audio_devices():
+    """Return up to two input devices from the OS's active audio backend.
+
+    On Windows, WDM-KS can report stale Bluetooth endpoints, so prefer WASAPI.
+    On Linux, prefer PulseAudio/PipeWire (the desktop's active source list) over
+    the raw ALSA inventory. This keeps disconnected devices out of the picker.
+    """
+    try:
+        import sounddevice as sd
+        host_apis = sd.query_hostapis()
+        all_inputs = []
+        for index, device in enumerate(sd.query_devices()):
+            if int(device.get("max_input_channels", 0)) <= 0:
+                continue
+            host_index = int(device.get("hostapi", -1))
+            host_name = host_apis[host_index].get("name", "") if 0 <= host_index < len(host_apis) else ""
+            name = str(device.get("name", f"Input device {index}")).strip()
+            all_inputs.append({"index": index, "name": name, "host_api": host_name,
+                               "host_api_index": host_index})
+
+        system = sys.platform.lower()
+        preferred_terms = ("wasapi",) if system == "win32" else ("pulse", "pipewire")
+        preferred_api_ids = {i for i, api in enumerate(host_apis)
+                             if any(term in str(api.get("name", "")).lower()
+                                    for term in preferred_terms)}
+        preferred_apis = [api for i, api in enumerate(host_apis) if i in preferred_api_ids]
+        inputs = [item for item in all_inputs if item["host_api_index"] in preferred_api_ids]
+
+        # Fall back only when this machine has no active system backend exposed
+        # by PortAudio. Never use Windows WDM-KS: its disconnected endpoints are
+        # the source of stale Bluetooth choices such as unplugged headsets.
+        if not inputs:
+            inputs = [item for item in all_inputs
+                      if "wdm-ks" not in item["host_api"].lower()]
+
+        excluded_terms = ("stereo mix", "speaker", "sound mapper", "primary sound",
+                          "loopback", "monitor of", ".monitor")
+        inputs = [item for item in inputs
+                  if not any(term in item["name"].lower() for term in excluded_terms)]
+
+        # Pick the default from the selected backend when possible. If the
+        # PortAudio global default is a different backend's alias, prefer a
+        # built-in microphone name, then the backend's declared default input.
+        default_index = sd.default.device[0]
+        builtin_terms = ("microphone array", "internal mic", "built-in", "builtin", "laptop mic")
+        default = next((item for item in inputs if item["index"] == default_index), None)
+        if default is None and preferred_api_ids:
+            api_default_indexes = {int(api.get("default_input_device", -1)) for api in preferred_apis}
+            default = next((item for item in inputs if item["index"] in api_default_indexes), None)
+        builtin = next((item for item in inputs
+                        if any(term in item["name"].lower() for term in builtin_terms)), None)
+        primary = default or builtin or (inputs[0] if inputs else None)
+
+        # Keep the two common choices, but only when each is an actual distinct
+        # endpoint returned by the active backend; never fabricate a fallback.
+        secondary = None
+        if primary:
+            headset_terms = ("headset", "headphone", "earphone", "hands-free", "handsfree", "bluetooth", "bluez")
+            secondary = next((item for item in inputs if item["index"] != primary["index"]
+                              and any(term in item["name"].lower() for term in headset_terms)), None)
+            if secondary is None and primary is not builtin:
+                secondary = builtin if builtin and builtin["index"] != primary["index"] else None
+            if secondary is None:
+                secondary = next((item for item in inputs
+                                  if item["index"] != primary["index"]
+                                  and item is not builtin), None)
+
+        devices = []
+        for item in (primary, secondary):
+            if item:
+                devices.append({"index": item["index"], "name": item["name"],
+                                "display_name": item["name"]})
+        return {"devices": devices}
+    except Exception as e:
+        logging.getLogger(__name__).warning("Could not enumerate audio input devices: %s", e)
+        return {"devices": [], "error": str(e)}
 
 @app.post("/api/set_camera")
 async def post_set_camera(payload: dict):

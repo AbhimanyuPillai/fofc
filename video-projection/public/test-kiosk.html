@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kiosk Mode Test</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #1e293b, #581c87);
+            color: white;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        .status {
+            background: rgba(0,0,0,0.3);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .button {
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 10px;
+            font-size: 16px;
+        }
+        .button:hover {
+            transform: scale(1.05);
+        }
+        .log {
+            background: rgba(0,0,0,0.5);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: left;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🖥️ Kiosk Mode Test</h1>
+        
+        <div class="status">
+            <h2>PWA Detection Status</h2>
+            <p id="pwa-status">Checking...</p>
+            <p id="fullscreen-status">Fullscreen: Not active</p>
+        </div>
+
+        <div>
+            <button class="button" onclick="testFullscreen()">Test Fullscreen</button>
+            <button class="button" onclick="exitFullscreen()">Exit Fullscreen</button>
+            <button class="button" onclick="testKioskMode()">Test Kiosk Mode</button>
+            <button class="button" onclick="clearLog()">Clear Log</button>
+        </div>
+
+        <div class="log" id="log"></div>
+    </div>
+
+    <script>
+        const log = document.getElementById('log');
+        const pwaStatus = document.getElementById('pwa-status');
+        const fullscreenStatus = document.getElementById('fullscreen-status');
+
+        function addLog(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            log.innerHTML += `[${timestamp}] ${message}<br>`;
+            log.scrollTop = log.scrollHeight;
+            console.log(message);
+        }
+
+        function clearLog() {
+            log.innerHTML = '';
+        }
+
+        function updateStatus() {
+            const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                               window.matchMedia('(display-mode: fullscreen)').matches ||
+                               window.navigator.standalone === true;
+
+            const fullscreenElement = document.fullscreenElement ||
+                                    document.webkitFullscreenElement ||
+                                    document.mozFullScreenElement ||
+                                    document.msFullscreenElement;
+
+            pwaStatus.innerHTML = `
+                Standalone: ${window.matchMedia('(display-mode: standalone)').matches}<br>
+                Fullscreen Display: ${window.matchMedia('(display-mode: fullscreen)').matches}<br>
+                Navigator Standalone: ${window.navigator.standalone}<br>
+                Is PWA: ${isStandalone}
+            `;
+
+            fullscreenStatus.textContent = `Fullscreen: ${fullscreenElement ? 'Active' : 'Not active'}`;
+        }
+
+        async function testFullscreen() {
+            addLog('Testing fullscreen...');
+            try {
+                const element = document.documentElement;
+                if (element.requestFullscreen) {
+                    await element.requestFullscreen();
+                    addLog('✅ Fullscreen requested successfully');
+                } else if (element.webkitRequestFullscreen) {
+                    await element.webkitRequestFullscreen();
+                    addLog('✅ Webkit fullscreen requested successfully');
+                } else if (element.mozRequestFullScreen) {
+                    await element.mozRequestFullScreen();
+                    addLog('✅ Mozilla fullscreen requested successfully');
+                } else if (element.msRequestFullscreen) {
+                    await element.msRequestFullscreen();
+                    addLog('✅ MS fullscreen requested successfully');
+                } else {
+                    addLog('❌ Fullscreen API not supported');
+                }
+            } catch (error) {
+                addLog(`❌ Fullscreen error: ${error.message}`);
+            }
+        }
+
+        async function exitFullscreen() {
+            addLog('Exiting fullscreen...');
+            try {
+                if (document.exitFullscreen) {
+                    await document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    await document.webkitExitFullscreen();
+                } else if (document.mozCancelFullScreen) {
+                    await document.mozCancelFullScreen();
+                } else if (document.msExitFullscreen) {
+                    await document.msExitFullscreen();
+                }
+                addLog('✅ Exited fullscreen');
+            } catch (error) {
+                addLog(`❌ Exit fullscreen error: ${error.message}`);
+            }
+        }
+
+        function testKioskMode() {
+            addLog('Testing kiosk mode functionality...');
+            
+            // Test PWA detection
+            const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                               window.matchMedia('(display-mode: fullscreen)').matches ||
+                               window.navigator.standalone === true;
+            
+            addLog(`PWA Detection: ${isStandalone ? '✅ PWA detected' : '❌ Not running as PWA'}`);
+            
+            if (isStandalone) {
+                addLog('🖥️ Enabling kiosk mode...');
+                setTimeout(() => {
+                    testFullscreen();
+                }, 1000);
+            } else {
+                addLog('ℹ️ To test kiosk mode, install this as a PWA first');
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            addLog('🚀 Kiosk mode test initialized');
+            updateStatus();
+            
+            // Listen for fullscreen changes
+            document.addEventListener('fullscreenchange', updateStatus);
+            document.addEventListener('webkitfullscreenchange', updateStatus);
+            document.addEventListener('mozfullscreenchange', updateStatus);
+            document.addEventListener('MSFullscreenChange', updateStatus);
+            
+            // Test if running as PWA
+            const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                               window.matchMedia('(display-mode: fullscreen)').matches ||
+                               window.navigator.standalone === true;
+            
+            if (isStandalone) {
+                addLog('🎉 Running as installed PWA!');
+                addLog('🖥️ Kiosk mode should be available');
+            } else {
+                addLog('🌐 Running in browser mode');
+                addLog('💡 Install as PWA to test kiosk mode');
+            }
+        });
+
+        // Update status every second
+        setInterval(updateStatus, 1000);
+    </script>
+</body>
+</html>

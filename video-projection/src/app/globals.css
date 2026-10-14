@@ -1,0 +1,284 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  --font-geist-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-geist-mono: ui-monospace, SFMono-Regular, "SF Mono", Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans);
+  overflow-x: hidden;
+}
+
+/* Ensure fonts load properly */
+@font-face {
+  font-family: 'Inter-fallback';
+  src: local('system-ui'), local('-apple-system'), local('BlinkMacSystemFont');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains-fallback';
+  src: local('ui-monospace'), local('SFMono-Regular'), local('Monaco');
+  font-display: swap;
+}
+
+/* Futuristic Animations */
+@keyframes techGlow {
+  0%, 100% { 
+    box-shadow: 0 0 5px #00ffff, 0 0 10px #00ffff, 0 0 15px #00ffff;
+    opacity: 0.8;
+  }
+  50% { 
+    box-shadow: 0 0 10px #00ffff, 0 0 20px #00ffff, 0 0 30px #00ffff;
+    opacity: 1;
+  }
+}
+
+@keyframes dataFlow {
+  0% { transform: translateX(-100%); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateX(100%); opacity: 0; }
+}
+
+@keyframes scanLine {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+@keyframes circuitPulse {
+  0%, 100% { stroke-dashoffset: 0; }
+  50% { stroke-dashoffset: 20; }
+}
+
+@keyframes holographicFlicker {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+  75% { opacity: 0.9; }
+}
+
+@keyframes energyOrb {
+  0%, 100% { 
+    transform: scale(1) rotate(0deg);
+    filter: hue-rotate(0deg);
+  }
+  50% { 
+    transform: scale(1.2) rotate(180deg);
+    filter: hue-rotate(90deg);
+  }
+}
+
+/* Utility Classes */
+.tech-glow {
+  animation: techGlow 2s ease-in-out infinite;
+}
+
+.data-flow {
+  animation: dataFlow 3s linear infinite;
+}
+
+.scan-line {
+  animation: scanLine 2s linear infinite;
+}
+
+.circuit-pulse {
+  animation: circuitPulse 1.5s ease-in-out infinite;
+}
+
+.holographic-flicker {
+  animation: holographicFlicker 0.1s ease-in-out infinite;
+}
+
+.energy-orb {
+  animation: energyOrb 4s ease-in-out infinite;
+}
+
+/* Terminal typing effect */
+@keyframes typing {
+  from { width: 0 }
+  to { width: 100% }
+}
+
+@keyframes caretBlink {
+  0%, 100% { border-color: transparent }
+  50% { border-color: rgba(0, 255, 255, 0.7) }
+}
+
+.animate-typing {
+  overflow: hidden;
+  white-space: nowrap;
+  border-right: 2px solid rgba(0, 255, 255, 0.7);
+  width: 100%;
+  display: inline-block;
+  animation: typing 1.6s steps(30, end) 0s 1 normal both, caretBlink 1s step-end infinite;
+}
+
+.animate-typing-delayed {
+  overflow: hidden;
+  white-space: nowrap;
+  border-right: 2px solid rgba(0, 255, 255, 0.7);
+  width: 100%;
+  display: inline-block;
+  animation: typing 1.8s steps(30, end) 0.4s 1 normal both, caretBlink 1s step-end infinite;
+}
+
+.terminal-log {
+  font-family: var(--font-geist-mono);
+  font-size: 11px;
+  line-height: 1.25rem;
+  color: rgba(34, 211, 238, 0.75); /* cyan-400/75 */
+  text-shadow: 0 0 6px rgba(34, 211, 238, 0.35);
+}
+
+.terminal-line::before {
+  content: "$ ";
+  color: rgba(34, 211, 238, 0.6);
+}
+
+.terminal-scroll {
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end; /* start lines from bottom */
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(45deg, #00ffff, #0080ff);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(45deg, #00cccc, #0066cc);
+}
+
+/* Gradient Text */
+.gradient-text {
+  background: linear-gradient(45deg, #00ffff, #0080ff, #8000ff);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradientShift 3s ease infinite;
+}
+
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* Glass Morphism */
+.glass {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.glass-dark {
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(0, 255, 255, 0.2);
+}
+
+/* Tech Border */
+.tech-border {
+  position: relative;
+  border: 2px solid transparent;
+  background: linear-gradient(45deg, rgba(0, 255, 255, 0.1), rgba(0, 128, 255, 0.1));
+  background-clip: padding-box;
+}
+
+.tech-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  background: linear-gradient(45deg, #00ffff, #0080ff, #8000ff);
+  border-radius: inherit;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  animation: gradientShift 3s ease infinite;
+}
+
+/* Neon Effects */
+.neon-cyan {
+  color: #00ffff;
+  text-shadow: 0 0 5px #00ffff, 0 0 10px #00ffff, 0 0 15px #00ffff;
+}
+
+.neon-blue {
+  color: #0080ff;
+  text-shadow: 0 0 5px #0080ff, 0 0 10px #0080ff, 0 0 15px #0080ff;
+}
+
+/* Hover Effects */
+.hover-glow:hover {
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
+  transform: translateY(-2px);
+  transition: all 0.3s ease;
+}
+
+/* Loading Spinner */
+.spinner {
+  border: 3px solid rgba(0, 255, 255, 0.3);
+  border-top: 3px solid #00ffff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Particle Effects */
+.particle {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  background: #00ffff;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: particleFloat 6s ease-in-out infinite;
+}
+
+@keyframes particleFloat {
+  0%, 100% { 
+    transform: translateY(0px) translateX(0px);
+    opacity: 0.3;
+  }
+  25% { 
+    transform: translateY(-20px) translateX(10px);
+    opacity: 1;
+  }
+  50% { 
+    transform: translateY(-10px) translateX(-5px);
+    opacity: 0.8;
+  }
+  75% { 
+    transform: translateY(-30px) translateX(15px);
+    opacity: 0.6;
+  }
+}

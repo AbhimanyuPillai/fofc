@@ -376,30 +376,6 @@
       font-family: 'JetBrains Mono', monospace;
     }
 
-    .board-card[data-board="esp32"] .board-badge-icon {
-      background: rgba(16, 185, 129, 0.15);
-      color: #34d399;
-      border: 1px solid rgba(16, 185, 129, 0.3);
-    }
-
-    .board-card[data-board="jetson"] .board-badge-icon {
-      background: rgba(14, 165, 233, 0.15);
-      color: #38bdf8;
-      border: 1px solid rgba(14, 165, 233, 0.3);
-    }
-
-    .board-card[data-board="stm32"] .board-badge-icon {
-      background: rgba(99, 102, 241, 0.15);
-      color: #818cf8;
-      border: 1px solid rgba(99, 102, 241, 0.3);
-    }
-
-    .board-card[data-board="arduino"] .board-badge-icon {
-      background: rgba(245, 158, 11, 0.15);
-      color: #fbbf24;
-      border: 1px solid rgba(245, 158, 11, 0.3);
-    }
-
     .board-info h3 {
       font-family: 'Outfit', sans-serif;
       font-size: 1.05rem;
@@ -662,86 +638,8 @@
           Physical Desk Inventory
         </h2>
 
-        <div class="hardware-grid">
-          <!-- ESP32-S3 -->
-          <div class="board-card" id="card-esp32" data-board="esp32">
-            <div>
-              <div class="board-header">
-                <div class="board-badge-icon">ESP</div>
-                <div class="board-info">
-                  <h3>ESP32-S3 DevKit</h3>
-                  <span class="board-role-tag">WIRELESS TELEMETRY</span>
-                </div>
-              </div>
-              <div class="board-specs">
-                Dual-core Xtensa LX7 @ 240MHz<br>
-                2.4 GHz Wi-Fi 4 + Bluetooth 5 LE
-              </div>
-            </div>
-            <div class="board-role-desc">
-              Low-power wireless telemetry bridge and live sensor streaming.
-            </div>
-          </div>
-
-          <!-- Jetson Orin Nano -->
-          <div class="board-card" id="card-jetson" data-board="jetson">
-            <div>
-              <div class="board-header">
-                <div class="board-badge-icon">AI</div>
-                <div class="board-info">
-                  <h3>Jetson Orin Nano</h3>
-                  <span class="board-role-tag">EDGE AI ACCELERATOR</span>
-                </div>
-              </div>
-              <div class="board-specs">
-                6-core ARM Cortex-A78AE<br>
-                Ampere GPU (32 Tensor Cores, 40 TOPS)
-              </div>
-            </div>
-            <div class="board-role-desc">
-              High-performance edge AI compute, real-time vision and neural networks.
-            </div>
-          </div>
-
-          <!-- STM32 Nucleo -->
-          <div class="board-card" id="card-stm32" data-board="stm32">
-            <div>
-              <div class="board-header">
-                <div class="board-badge-icon">RT</div>
-                <div class="board-info">
-                  <h3>STM32 Nucleo-F446RE</h3>
-                  <span class="board-role-tag">HARD REAL-TIME CONTROL</span>
-                </div>
-              </div>
-              <div class="board-specs">
-                ARM Cortex-M4 @ 180MHz w/ FPU<br>
-                Industrial CAN 2.0B & Motor Control
-              </div>
-            </div>
-            <div class="board-role-desc">
-              Deterministic real-time control loops, actuator drivers, and CAN bus.
-            </div>
-          </div>
-
-          <!-- Arduino Uno Rev4 -->
-          <div class="board-card" id="card-arduino" data-board="arduino">
-            <div>
-              <div class="board-header">
-                <div class="board-badge-icon">MCU</div>
-                <div class="board-info">
-                  <h3>Arduino Uno Rev4</h3>
-                  <span class="board-role-tag">PROTOTYPING & SENSORS</span>
-                </div>
-              </div>
-              <div class="board-specs">
-                32-bit Renesas RA4M1 (Cortex-M4)<br>
-                High-precision analog & digital I/O
-              </div>
-            </div>
-            <div class="board-role-desc">
-              Rapid hardware prototyping, peripheral relays, and analog sensor acquisition.
-            </div>
-          </div>
+        <div class="hardware-grid" id="productInventory" aria-live="polite">
+          <div class="board-card"><div class="board-role-desc">Loading products…</div></div>
         </div>
       </section>
 
@@ -823,21 +721,44 @@
       }
     }
 
-    function highlightBoard(boardKey) {
+    function renderProductInventory(products) {
+      const inventory = document.getElementById('productInventory');
+      if (!inventory) return;
+      inventory.innerHTML = products.map(product => `
+        <div class="board-card" id="card-product-${Number(product.id)}" data-product-id="${Number(product.id)}">
+          <div>
+            <div class="board-header">
+              <div class="board-badge-icon">${escapeHTML(String(product.name || 'P').slice(0, 3).toUpperCase())}</div>
+              <div class="board-info">
+                <h3>${escapeHTML(product.name || 'Product')}</h3>
+                <span class="board-role-tag">${escapeHTML(product.category || 'PRODUCT')}</span>
+              </div>
+            </div>
+            <div class="board-specs">${escapeHTML(product.description || 'Product details are not available.')}</div>
+          </div>
+        </div>`).join('');
+    }
+
+    fetch('/api/products')
+      .then(response => {
+        if (!response.ok) throw new Error('Product catalog is unavailable');
+        return response.json();
+      })
+      .then(products => renderProductInventory(Array.isArray(products) ? products : []))
+      .catch(() => {
+        const inventory = document.getElementById('productInventory');
+        if (inventory) inventory.innerHTML = '<div class="board-card"><div class="board-role-desc">Product catalog is unavailable.</div></div>';
+      });
+
+    function highlightBoard(boardKey, productId = null) {
       clearBoardFocus();
       if (!boardKey) return;
-      const key = String(boardKey).toLowerCase();
-      let targetId = 'card-' + key;
-      if (!document.getElementById(targetId)) {
-        if (key.includes('esp32')) targetId = 'card-esp32';
-        else if (key.includes('jetson')) targetId = 'card-jetson';
-        else if (key.includes('stm32')) targetId = 'card-stm32';
-        else if (key.includes('arduino')) targetId = 'card-arduino';
-      }
-      const card = document.getElementById(targetId);
+      const cards = [...document.querySelectorAll('.board-card[data-product-id]')];
+      const card = cards.find(item => productId != null && item.dataset.productId === String(productId)) ||
+        cards.find(item => item.querySelector('h3')?.textContent.trim().toLowerCase() === String(boardKey).trim().toLowerCase());
       if (card) {
         card.classList.add('active-focus');
-        currentFocusBoard = targetId.replace('card-', '');
+        currentFocusBoard = card.dataset.productId;
       }
     }
 
@@ -925,7 +846,7 @@
           if (msg.type === 'state') {
             updateStateUI(msg.state);
           } else if (msg.type === 'focus') {
-            highlightBoard(msg.board);
+            highlightBoard(msg.board, msg.productId);
           } else if (msg.type === 'transcript') {
             addTranscriptMessage(msg.role, msg.text);
           } else if (msg.type === 'stream_chunk') {

@@ -164,88 +164,20 @@ export class ZoneManager {
   }
 
   getDefaultExhibitionZones() {
-    return [
-      {
-        id: 'zone_esp32',
-        name: 'ESP32-S3 DevKit',
-        voiceMessage: 'ESP32-S3 DevKit focused',
-        color: '#00f5d4',
-        type: 'rect',
-        x: 0.05,
-        y: 0.20,
-        w: 0.20,
-        h: 0.40,
-        points: [
-          { x: 0.05, y: 0.20 },
-          { x: 0.25, y: 0.20 },
-          { x: 0.25, y: 0.60 },
-          { x: 0.05, y: 0.60 },
-        ],
-        _dirty: true,
-      },
-      {
-        id: 'zone_jetson',
-        name: 'NVIDIA Jetson Orin Nano',
-        voiceMessage: 'NVIDIA Jetson Orin Nano focused',
-        color: '#10b981',
-        type: 'rect',
-        x: 0.28,
-        y: 0.20,
-        w: 0.20,
-        h: 0.40,
-        points: [
-          { x: 0.28, y: 0.20 },
-          { x: 0.48, y: 0.20 },
-          { x: 0.48, y: 0.60 },
-          { x: 0.28, y: 0.60 },
-        ],
-        _dirty: true,
-      },
-      {
-        id: 'zone_stm32',
-        name: 'STM32 Nucleo-F446RE',
-        voiceMessage: 'STM32 Nucleo-F446RE focused',
-        color: '#38bdf8',
-        type: 'rect',
-        x: 0.52,
-        y: 0.20,
-        w: 0.20,
-        h: 0.40,
-        points: [
-          { x: 0.52, y: 0.20 },
-          { x: 0.72, y: 0.20 },
-          { x: 0.72, y: 0.60 },
-          { x: 0.52, y: 0.60 },
-        ],
-        _dirty: true,
-      },
-      {
-        id: 'zone_arduino',
-        name: 'Arduino Uno Rev4',
-        voiceMessage: 'Arduino Uno Rev4 focused',
-        color: '#ffaa00',
-        type: 'rect',
-        x: 0.75,
-        y: 0.20,
-        w: 0.20,
-        h: 0.40,
-        points: [
-          { x: 0.75, y: 0.20 },
-          { x: 0.95, y: 0.20 },
-          { x: 0.95, y: 0.60 },
-          { x: 0.75, y: 0.60 },
-        ],
-        _dirty: true,
-      },
-    ];
+    // Product areas are created and assigned through the admin panel.
+    // Never seed example targets that could be mistaken for catalog products.
+    return [];
   }
 
   loadFromStorage() {
     try {
-      const saved = localStorage.getItem('aerofinger_zones');
+      // Use a catalog-specific key so stale demo targets from older versions
+      // cannot reappear after an upgrade. The admin API supplies saved zones.
+      const saved = localStorage.getItem('repos_product_zones_v2');
       if (saved) {
         const parsed = JSON.parse(saved);
-        // If legacy sample zone or empty, migrate to canonical exhibition boards
+        // Old sample data is not a catalog; start with no targets and let the
+        // admin define areas for the products returned by the live catalog.
         if (!Array.isArray(parsed) || parsed.length === 0 || (parsed.length === 1 && parsed[0].name === 'Control Panel')) {
           this.zones = this.getDefaultExhibitionZones();
           this.saveToStorage();
@@ -272,7 +204,7 @@ export class ZoneManager {
         const { _screenPts, _dirty, ...rest } = z;
         return rest;
       });
-      localStorage.setItem('aerofinger_zones', JSON.stringify(toSave));
+      localStorage.setItem('repos_product_zones_v2', JSON.stringify(toSave));
     } catch (e) {
       console.warn('[ZoneManager] Failed to save zones:', e);
     }

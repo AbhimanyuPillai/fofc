@@ -1,0 +1,172 @@
+[
+  {
+    "id": 1,
+    "name": "SMART#C",
+    "category": "Safety layer",
+    "description": "Self Monitored Remote Acceleration and Throttle Controller helps to control the speed of the RFS Power takeoff Unit and disconnects the accelerator to prevent any mishap. ",
+    "modelPath": "/3dModels/SMART_C_Final_compressed-1766051222538.glb",
+    "videoUrl": "/videos/Datum_Assemble_3D_with_3D_surround-1759224809812.mp4",
+    "images": [
+      "/images/processor-1.jpg",
+      "/images/processor-2.jpg"
+    ],
+    "specs": [
+      "64-qubit architecture",
+      "Superconducting technology",
+      "Error correction built-in"
+    ]
+  },
+  {
+    "id": 2,
+    "name": "R-CAM",
+    "category": "Security layer",
+    "description": "100% offline camera system for capturing video of every order and mapping with order ID and exact timestamp on Repos OS",
+    "modelPath": "/3dModels/4G_Datalink-1766048649765.glb",
+    "videoUrl": "/videos/Datum_Assemble_3D_with_3D_surround-1759224809812.mp4",
+    "images": [
+      "/images/neural-1.jpg",
+      "/images/neural-2.jpg"
+    ],
+    "specs": [
+      "Non-invasive design",
+      "Real-time processing",
+      "FDA approved"
+    ]
+  },
+  {
+    "id": 3,
+    "name": "R-ATG - Ultrasonic",
+    "category": "Fuel monitoring layer",
+    "description": "Repos ATG - Ultrasonic is a non-invasive fuel monitoring system that uses ultrasonic waves to measure fuel levels in real-time.",
+    "modelPath": "/3dModels/Ultrasonic_PCB_Updated-1759316511479-1766051457454.glb",
+    "videoUrl": "/videos/R-ATG_Ultrasonic_Final-1759315014140-1766051685936.m4v",
+    "images": [
+      "/images/holo-1.jpg",
+      "/images/holo-2.jpg"
+    ],
+    "specs": [
+      "8K resolution",
+      "360° viewing",
+      "Touch interaction"
+    ]
+  },
+  {
+    "id": 4,
+    "name": "IS-Barrier",
+    "category": "Safety layer",
+    "description": "An IS- barrier is a protection device that limits the electrical energy going into hazardous areas, preventing sparks or heat that could ignite fuel vapors.",
+    "modelPath": "/3dModels/SMART_C_Final_compressed-1764932728039-1764933252258-1766051420465.glb",
+    "videoUrl": "/videos/Datum_Assemble_3D_with_3D_surround-1766048622259.m4v",
+    "images": [
+      "/images/reactor-1.jpg",
+      "/images/reactor-2.jpg"
+    ],
+    "specs": [
+      "100MW output",
+      "Zero emissions",
+      "Self-sustaining"
+    ]
+  },
+  {
+    "id": 5,
+    "name": "R-ATG - Capacitance",
+    "category": "Fuel Monitoring layer",
+    "description": "Repos ATG - Capacitance is a fuel monitoring device which uses uses fuel dielectric constant to measure fuel levels in real-time.",
+    "modelPath": "/3dModels/R-ATG_Final_compressed-1766051457944.glb",
+    "videoUrl": "/videos/assembler-demo.mp4",
+    "images": [
+      "/images/assembler-1.jpg",
+      "/images/assembler-2.jpg"
+    ],
+    "specs": [
+      "Atomic precision",
+      "Self-replicating",
+      "Programmable"
+    ]
+  },
+  {
+    "id": 6,
+    "name": "Data Link",
+    "category": "Data Sync layer",
+    "description": "This device uses 4G network to sync data with the cloud.",
+    "modelPath": "/3dModels/4G_Datalink_compressed-1766051464097.glb",
+    "videoUrl": "/videos/assembler-demo.mp4",
+    "images": [
+      "/images/assembler-1.jpg",
+      "/images/assembler-2.jpg"
+    ],
+    "specs": [
+      "Atomic precision",
+      "Self-replicating",
+      "Programmable"
+    ]
+  },
+  {
+    "id": 7,
+    "name": "Fire Shield",
+    "category": "Safety layer",
+    "description": "This device is a Fire detection and suppression system that detects and suppress fires in real-time.",
+    "modelPath": "/3dModels/SF_Scanner_compressed-1766051487394.glb",
+    "videoUrl": "/videos/AFDSS_First_Draft-1759315085600-1766051704889.mp4",
+    "images": [
+      "/images/assembler-1.jpg",
+      "/images/assembler-2.jpg"
+    ],
+    "specs": [
+      "Atomic precision",
+      "Self-replicating",
+      "Programmable"
+    ]
+  },
+  {
+    "id": 8,
+    "name": "ONE SYNC",
+    "category": "Decision layer",
+    "description": "ONE SYNC is a brain of the system that controls and monitors all the other devices.",
+    "modelPath": "/3dModels/One_Sync-1759317036847-1766051504093.glb",
+    "videoUrl": "/videos/Vision_Film_v3_4mins_Final_With_changes_-1759315831231-1766051765891.m4v",
+    "images": [
+      "/images/assembler-1.jpg",
+      "/images/assembler-2.jpg"
+    ],
+    "specs": [
+      "Atomic precision",
+      "Self-replicating",
+      "Programmable"
+    ]
+  },
+  {
+    "id": 9,
+    "name": "RFID",
+    "category": "Security layer",
+    "description": "This device is a RFID system that uses RFID tags to identify and track fueling in real-time.",
+    "modelPath": "/3dModels/R-ATG_Final-1759316627785-1766051901975.glb",
+    "videoUrl": "/videos/assembler-demo.mp4",
+    "images": [
+      "/images/assembler-1.jpg",
+      "/images/assembler-2.jpg"
+    ],
+    "specs": [
+      "Atomic precision",
+      "Self-replicating",
+      "Programmable"
+    ]
+  },
+  {
+    "id": 10,
+    "name": "Secure Fueling",
+    "category": "Security layer",
+    "description": "This is REPOSs patented technology that ensures secure fueling.",
+    "modelPath": "/3dModels/SF-TAG_compressed-1766051537055.glb",
+    "videoUrl": "/videos/assembler-demo.mp4",
+    "images": [
+      "/images/assembler-1.jpg",
+      "/images/assembler-2.jpg"
+    ],
+    "specs": [
+      "Atomic precision",
+      "Self-replicating",
+      "Programmable"
+    ]
+  }
+]

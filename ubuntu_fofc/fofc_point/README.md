@@ -10,7 +10,7 @@ A high-performance, 100% offline edge-ready Web application for real-time 3D han
   - No internet connection required after setup.
   - Zero CDN dependencies: MediaPipe WebAssembly binaries (`/wasm/vision_wasm_internal.wasm` & `.js`) and Google's neural model (`/models/hand_landmarker.task`) are bundled and served locally.
   - Offline Progressive Web App (PWA) with Service Worker precaching.
-- **Optimized for Edge Hardware (Raspberry Pi, Jetson, Kiosks, Tablets)**:
+- **Optimized for Edge Hardware (Raspberry Pi, Kiosks, Tablets)**:
   - Configurable Compute Delegate: Hardware GPU (WebGL2) or CPU fallback.
   - Edge FPS limiter (15, 30, 60 FPS) to prevent thermal throttling on low-power devices.
   - Max hands selector (1 hand saves ~45% compute overhead; 2 hands for bi-manual tracking).

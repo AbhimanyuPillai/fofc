@@ -16,8 +16,24 @@ VIDEO_CONTROL_URL = f"{PROJECTION_BASE_URL}/api/video-control"
 
 _catalog_lock = threading.Lock()
 _catalog_by_id: Dict[int, Dict[str, Any]] = {}
-_play_queue: "queue.Queue[int]" = queue.Queue(maxsize=32)
+_play_queue: "queue.Queue[tuple[str, Optional[int]]]" = queue.Queue(maxsize=32)
 _started = False
+
+# Likely speech-to-text renderings for the current table labels. Keep these
+# keyed by the normalized product name so catalog IDs remain dynamic. New
+# products can also provide an `aliases` list in their product metadata.
+SPOKEN_NAME_ALIASES = {
+    "smart c": {"smart see", "smart sea"},
+    "r cam": {"are cam", "our cam"},
+    "r atg ultrasonic": {"r a t g ultrasonic", "are a t g ultrasonic"},
+    "is barrier": {"i s barrier", "ice barrier"},
+    "r atg capacitance": {"r a t g capacitance", "are a t g capacitance"},
+    "one sync": {"onesync", "one sink", "1 sync", "1sync", "1 sink", "one six"},
+    "data link": {"data lynk", "data link board"},
+    "fire shield": {"fire sheild", "fire shield board"},
+    "rfid": {"r f i d", "are f i d"},
+    "secure fueling": {"secure fuelling"},
+}
 
 
 def refresh_product_catalog() -> bool:
@@ -75,10 +91,8 @@ def _product_aliases(product: Dict[str, Any]) -> set[str]:
     compact = re.sub(r"[^a-z0-9]+", "", name.lower())
     if len(compact) >= 5:
         aliases.add(compact)
-    # Spoken product-name variants commonly produced by ASR.
     normalized = re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
-    if normalized == "one sync":
-        aliases.update({"onesync", "1 sync", "1sync", "1 one sync"})
+    aliases.update(SPOKEN_NAME_ALIASES.get(normalized, set()))
     return {re.sub(r"\s+", " ", alias.lower()).strip() for alias in aliases if alias}
 
 
@@ -115,6 +129,20 @@ def find_product_by_text(text: str) -> Optional[Dict[str, Any]]:
     return next(iter(matches.values())) if len(matches) == 1 else None
 
 
+def detect_video_intent(text: str) -> Optional[str]:
+    """Detect explicit playback controls without treating board questions as commands."""
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).strip()
+    if not normalized:
+        return None
+    if re.search(r"\b(stop|end|close)\b.{0,24}\b(video|demo|playback)\b|\bstop playing\b", normalized):
+        return "stop"
+    if re.search(r"\bpause\b.{0,24}\b(video|demo|playback)\b|\bpause playing\b", normalized):
+        return "pause"
+    if re.search(r"\b(play|start|show|watch|see)\b.{0,40}\b(demo|video)\b", normalized):
+        return "play"
+    return None
+
+
 def _catalog_worker() -> None:
     while True:
         refresh_product_catalog()
@@ -123,38 +151,42 @@ def _catalog_worker() -> None:
 
 def _play_worker() -> None:
     while True:
-        product_id = _play_queue.get()
+        action, product_id = _play_queue.get()
         try:
-            product = get_product(product_id)
-            if not product:
+            product = get_product(product_id) if product_id is not None else None
+            if product_id is not None and not product:
                 refresh_product_catalog()
                 product = get_product(product_id)
-            if not product:
+            if product_id is not None and not product:
                 print(f"[PROJECTION BRIDGE] Ignoring unknown product ID {product_id}")
                 continue
+            product = product or {}
             video_url = product.get("videoUrl") or product.get("video_url")
-            if not video_url:
+            if action == "play" and not video_url:
                 print(f"[PROJECTION BRIDGE] Product ID {product_id} has no video URL")
                 continue
 
-            response = requests.post(
-                VIDEO_CONTROL_URL,
-                json={
-                    # `swap` is the projection app's existing carousel-selection signal.
-                    # The app will resolve productId and move its selected card directly.
-                    "action": "swap",
+            payload = {"action": action}
+            if product_id is not None:
+                payload.update({
                     "productId": product_id,
                     "productName": product.get("name", f"Product {product_id}"),
-                    "videoUrl": video_url,
-                },
+                })
+            if video_url:
+                payload["videoUrl"] = video_url
+
+            response = requests.post(
+                VIDEO_CONTROL_URL,
+                json=payload,
                 timeout=1.5,
             )
             response.raise_for_status()
             result = response.json()
             if result.get("success"):
-                print(f"[PROJECTION BRIDGE] Sent product ID {product_id} to projection software")
+                product_suffix = f" for product ID {product_id}" if product_id is not None else ""
+                print(f"[PROJECTION BRIDGE] Sent {action} command{product_suffix} to projection software")
             else:
-                print(f"[PROJECTION BRIDGE] Projection software did not confirm product ID {product_id}: {result}")
+                print(f"[PROJECTION BRIDGE] Projection software did not confirm {action}: {result}")
         except Exception as exc:
             print(f"[PROJECTION BRIDGE] Could not send product ID {product_id}: {exc}")
         finally:
@@ -171,14 +203,55 @@ def start() -> None:
 
 
 def point_to_product(product_id: Optional[int]) -> bool:
-    """Queue a play command without blocking the pointing or speech pipeline."""
+    """Queue selection of a product without blocking the pointing/speech pipeline."""
     try:
         if product_id is None:
             return False
-        _play_queue.put_nowait(int(product_id))
+        _play_queue.put_nowait(("swap", int(product_id)))
         return True
     except (TypeError, ValueError):
         return False
     except queue.Full:
         print("[PROJECTION BRIDGE] Command queue is full; dropping pointing update")
+        return False
+
+
+def play_product(product_id: Optional[int]) -> bool:
+    """Queue playback of the selected product's demo video."""
+    try:
+        if product_id is None:
+            return False
+        product_id = int(product_id)
+        product = get_product(product_id)
+        if not product:
+            refresh_product_catalog()
+            product = get_product(product_id)
+        if not product or not (product.get("videoUrl") or product.get("video_url")):
+            return False
+        _play_queue.put_nowait(("play", product_id))
+        return True
+    except (TypeError, ValueError):
+        return False
+    except queue.Full:
+        print("[PROJECTION BRIDGE] Command queue is full; dropping video play request")
+        return False
+
+
+def stop_video() -> bool:
+    """Queue a stop command for the projection TV."""
+    try:
+        _play_queue.put_nowait(("stop", None))
+        return True
+    except queue.Full:
+        print("[PROJECTION BRIDGE] Command queue is full; dropping video stop request")
+        return False
+
+
+def pause_video() -> bool:
+    """Queue a pause command for the projection TV."""
+    try:
+        _play_queue.put_nowait(("pause", None))
+        return True
+    except queue.Full:
+        print("[PROJECTION BRIDGE] Command queue is full; dropping video pause request")
         return False

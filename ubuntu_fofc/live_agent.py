@@ -10,6 +10,7 @@ import threading
 import subprocess
 import collections
 import asyncio
+from math import gcd
 import websockets
 import requests
 import numpy as np
@@ -35,6 +36,30 @@ INACTIVITY_TIMEOUT = 180.0
 
 SAMPLE_RATE = 16000
 CHUNK_SIZE = 512          # 32ms frames (Silero VAD requirement)
+
+def get_input_stream_config(device_index=None):
+    """Choose a supported hardware rate and a block close to 32 ms."""
+    info = sd.query_devices(device_index, "input")
+    default_rate = int(round(float(info.get("default_samplerate") or SAMPLE_RATE)))
+    candidates = list(dict.fromkeys((default_rate, 48000, 44100, 32000, SAMPLE_RATE)))
+    last_error = None
+    for rate in candidates:
+        try:
+            sd.check_input_settings(device=device_index, samplerate=rate, channels=1)
+            blocksize = max(1, int(round(CHUNK_SIZE * rate / SAMPLE_RATE)))
+            return rate, blocksize
+        except Exception as exc:
+            last_error = exc
+    raise RuntimeError(f"No supported mono input rate found for {info.get('name', device_index)}: {last_error}")
+
+def make_input_stream(device_index=None):
+    """Open the hardware at its native rate; callback converts to model rate."""
+    input_rate, input_blocksize = get_input_stream_config(device_index)
+    callback = lambda indata, frames, time_info, status: audio_callback(
+        indata, frames, time_info, status, input_sample_rate=input_rate
+    )
+    return sd.InputStream(device=device_index, samplerate=input_rate, channels=1,
+                          dtype="float32", blocksize=input_blocksize, callback=callback)
 
 def get_default_mic_index() -> Optional[int]:
     """Choose a usable microphone using the Ubuntu/PortAudio device list."""
@@ -62,7 +87,7 @@ def get_default_mic_index() -> Optional[int]:
         )
         for idx in candidates:
             try:
-                sd.check_input_settings(device=idx, samplerate=SAMPLE_RATE, channels=1)
+                get_input_stream_config(idx)
                 return idx
             except Exception:
                 continue
@@ -299,8 +324,8 @@ def get_active_pointed_context() -> Optional[str]:
     )
 
 
-def latch_hardware_product(product_id: int, source: str) -> bool:
-    """Set the active product context and ask the projection app to select it."""
+def latch_hardware_product(product_id: int, source: str, send_to_projection: bool = True) -> bool:
+    """Set active product context and optionally select it in the projection app."""
     global current_pointed_board, current_pointed_product_id
     product = projection_bridge.get_product(product_id)
     if not product:
@@ -315,8 +340,40 @@ def latch_hardware_product(product_id: int, source: str) -> bool:
     print(f"[HARDWARE] Selected active board from {source}: {name} (product ID {product_id})")
     if "dashboard_server" in globals() and hasattr(dashboard_server, "set_hardware_focus"):
         dashboard_server.set_hardware_focus(name, product_id=int(product_id))
-    projection_bridge.point_to_product(int(product_id))
+    if send_to_projection:
+        projection_bridge.point_to_product(int(product_id))
     return True
+
+
+def handle_video_request(text: str, source: str) -> Optional[str]:
+    """Queue an explicit play/pause/stop request and return truthful LLM guidance."""
+    intent = projection_bridge.detect_video_intent(text)
+    if not intent:
+        return None
+
+    if intent == "stop":
+        queued = projection_bridge.stop_video()
+        return ("The video stop command was sent to the projection TV. Confirm briefly."
+                if queued else "The video stop command could not be queued. Tell the visitor plainly.")
+    if intent == "pause":
+        queued = projection_bridge.pause_video()
+        return ("The video pause command was sent to the projection TV. Confirm briefly."
+                if queued else "The video pause command could not be queued. Tell the visitor plainly.")
+
+    product = projection_bridge.find_product_by_text(text)
+    if not product:
+        with pointed_board_lock:
+            pointed_id = current_pointed_product_id
+        product = projection_bridge.get_product(pointed_id) if pointed_id is not None else None
+    if not product:
+        return "No board was identified for this demo request. Ask which board's demo they want to see."
+
+    product_id = int(product["id"])
+    product_name = str(product.get("name") or f"Product {product_id}").strip()
+    latch_hardware_product(product_id, source, send_to_projection=False)
+    if projection_bridge.play_product(product_id):
+        return f"The {product_name} demo playback command was sent to the projection TV. Confirm briefly and naturally."
+    return f"The {product_name} product has no demo video URL configured. Tell the visitor the demo is unavailable."
 
 DEVICE_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "device_config.json")
 
@@ -360,21 +417,33 @@ def resolve_mic_device(device_name: str = "", device_id: str = "") -> Optional[i
         print(f"[AUDIO DEVICE RESOLVE ERROR]: {e}")
     return None
 
-def switch_audio_device(device_name: str = "", device_id: str = ""):
+def switch_audio_device(device_name: str = "", device_id: str = "", device_index=None):
     global capture_device, active_audio_stream
-    target_idx = resolve_mic_device(device_name, device_id)
-    if target_idx is None and not device_name:
-        target_idx = get_default_mic_index()
+    target_idx = None
+    if device_index is not None:
+        try:
+            requested_index = int(device_index)
+            requested_device = sd.query_devices(requested_index)
+            if requested_device.get("max_input_channels", 0) > 0:
+                target_idx = requested_index
+        except (TypeError, ValueError, IndexError, sd.PortAudioError):
+            target_idx = None
+    else:
+        # Compatibility for messages from older dashboard clients.
+        target_idx = resolve_mic_device(device_name, device_id)
+        if target_idx is None and not device_name:
+            target_idx = get_default_mic_index()
 
-    save_device_config({
-        "agent_mic_name": device_name,
-        "agent_mic_device": device_id,
-        "agent_mic_index": target_idx
-    })
-    dashboard_server.save_camera_config({"audio_device_index": target_idx})
+    if target_idx is None:
+        message = f"Could not select microphone: {device_name or device_index or 'unknown device'}"
+        print(f"[AUDIO CAPTURE WARNING] {message}")
+        dashboard_server.broadcast_transcript("SYSTEM", message)
+        return False
 
     with audio_stream_lock:
         try:
+            replacement_stream = make_input_stream(target_idx)
+            replacement_stream.start()
             if active_audio_stream:
                 try:
                     active_audio_stream.stop()
@@ -382,25 +451,25 @@ def switch_audio_device(device_name: str = "", device_id: str = ""):
                 except Exception:
                     pass
             capture_device = target_idx
-            active_audio_stream = sd.InputStream(
-                device=target_idx,
-                samplerate=SAMPLE_RATE,
-                channels=1,
-                dtype="float32",
-                blocksize=CHUNK_SIZE,
-                callback=audio_callback
-            )
-            active_audio_stream.start()
+            active_audio_stream = replacement_stream
             dname = device_name or "System Default"
-            if target_idx is not None:
-                try:
-                    dname = sd.query_devices(target_idx).get("name", dname)
-                except Exception:
-                    pass
+            try:
+                dname = sd.query_devices(target_idx).get("name", dname)
+            except Exception:
+                pass
+            save_device_config({
+                "agent_mic_name": dname,
+                "agent_mic_device": device_id,
+                "agent_mic_index": target_idx
+            })
+            dashboard_server.save_camera_config({"audio_device_index": target_idx})
             print(f"[AUDIO CAPTURE] Switched microphone to: [{target_idx}] {dname}")
             dashboard_server.broadcast_transcript("SYSTEM", f"Switched microphone to: {dname}")
+            return True
         except Exception as e:
             print(f"[AUDIO CAPTURE RESTART WARNING] Failed to switch to [{target_idx}]: {e}")
+            dashboard_server.broadcast_transcript("SYSTEM", f"Could not switch microphone: {e}")
+            return False
 
 async def pointing_ws_handler(websocket):
     try:
@@ -430,7 +499,7 @@ async def pointing_ws_handler(websocket):
                 elif data.get("event") == "set_audio_device" or data.get("type") == "SET_AUDIO_DEVICE":
                     dev_id = data.get("device_id", "")
                     dev_name = data.get("device_name", "")
-                    switch_audio_device(device_name=dev_name, device_id=dev_id)
+                    switch_audio_device(device_name=dev_name, device_id=dev_id, device_index=data.get("device_index"))
             except Exception:
                 pass
     except Exception:
@@ -451,7 +520,7 @@ def start_pointing_server():
 
 threading.Thread(target=start_pointing_server, daemon=True, name="AeroFingerPointingWSServer").start()
 
-from scipy.signal import butter, sosfilt
+from scipy.signal import butter, sosfilt, resample_poly
 
 # ----------------------------------------------------
 # 1. BANDPASS FILTER FOR VOCAL TRACT (300 Hz - 3400 Hz)
@@ -473,10 +542,18 @@ def is_vocal_energy_present(indata: np.ndarray) -> bool:
     # Vocal energy must stand out above typical background rumble
     return vocal_rms > 0.045
 
-def audio_callback(indata, frames, time_info, status):
+def audio_callback(indata, frames, time_info, status, input_sample_rate=SAMPLE_RATE):
     global interrupt_requested, is_agent_speaking, consecutive_speech_frames
 
     audio_frame = indata.copy()
+    if input_sample_rate != SAMPLE_RATE:
+        divisor = gcd(int(input_sample_rate), SAMPLE_RATE)
+        audio_frame = resample_poly(audio_frame, SAMPLE_RATE // divisor,
+                                    input_sample_rate // divisor, axis=0)
+    if len(audio_frame) > CHUNK_SIZE:
+        audio_frame = audio_frame[:CHUNK_SIZE]
+    elif len(audio_frame) < CHUNK_SIZE:
+        audio_frame = np.pad(audio_frame, ((0, CHUNK_SIZE - len(audio_frame)), (0, 0)))
     audio_queue.put(audio_frame)
 
     if is_agent_speaking:
@@ -567,10 +644,7 @@ PHONETIC_REPLACEMENTS = {
     r"\bA\.I\.(?!\w)": "ay eye",
     r"\bA\.I\.\b": "ay eye",
     r"\bIoT\b": "eye oh tea",
-    r"\bNVIDIA\b": "envidia",
     r"\bRepos\b": "reepoze",
-    r"\bESP32\b": "E S P thirty-two",
-    r"\bSTM32\b": "S T M thirty-two",
 }
 
 def _normalize_speech_text(text: str) -> str:
@@ -1120,13 +1194,11 @@ def main():
     print("[STATUS: SLEEPING] Waiting for recognized user arrival, speech, or typed text...\n")
 
     try:
-        active_audio_stream = sd.InputStream(device=capture_device, samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-                                             blocksize=CHUNK_SIZE, callback=audio_callback)
+        active_audio_stream = make_input_stream(capture_device)
     except Exception as e:
         print(f"[AUDIO CAPTURE WARNING] Could not initialize device [{capture_device}]: {e}. Falling back to default system input.")
         capture_device = None
-        active_audio_stream = sd.InputStream(device=None, samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-                                             blocksize=CHUNK_SIZE, callback=audio_callback)
+        active_audio_stream = make_input_stream(None)
 
     with active_audio_stream:
         while True:
@@ -1165,9 +1237,11 @@ def main():
                 state = "ACTIVE"
                 dashboard_server.set_state("THINKING")
                 dashboard_server.broadcast_transcript("YOU", typed_msg)
-                matched_product = projection_bridge.find_product_by_text(typed_msg)
-                if matched_product:
-                    latch_hardware_product(int(matched_product["id"]), "typed question")
+                video_guidance = handle_video_request(typed_msg, "typed video request")
+                if video_guidance is None:
+                    matched_product = projection_bridge.find_product_by_text(typed_msg)
+                    if matched_product:
+                        latch_hardware_product(int(matched_product["id"]), "typed question")
                 vad_iterator.reset_states()
                 speech_buffer = []
                 pre_buffer.clear()
@@ -1175,7 +1249,12 @@ def main():
                 silence_frames = 0
 
                 pointed_context = get_active_pointed_context()
-                if pointed_context:
+                if video_guidance:
+                    prompt_with_context = (
+                        f"{typed_msg}\n[System action status: {video_guidance} "
+                        "Respond briefly and naturally, following that status.]"
+                    )
+                elif pointed_context:
                     prompt_with_context = f"{typed_msg}\n{pointed_context}"
                 else:
                     prompt_with_context = typed_msg
@@ -1465,12 +1544,19 @@ def main():
                         print(f"\n[YOU]: {user_text}")
                         dashboard_server.broadcast_transcript("YOU", user_text)
 
-                        matched_product = projection_bridge.find_product_by_text(user_text)
-                        if matched_product:
-                            latch_hardware_product(int(matched_product["id"]), "spoken question")
+                        video_guidance = handle_video_request(user_text, "spoken video request")
+                        if video_guidance is None:
+                            matched_product = projection_bridge.find_product_by_text(user_text)
+                            if matched_product:
+                                latch_hardware_product(int(matched_product["id"]), "spoken question")
 
                         pointed_context = get_active_pointed_context()
-                        if pointed_context:
+                        if video_guidance:
+                            prompt_with_context = (
+                                f"{user_text}\n[System action status: {video_guidance} "
+                                "Respond briefly and naturally, following that status.]"
+                            )
+                        elif pointed_context:
                             prompt_with_context = f"{user_text}\n{pointed_context}"
                         else:
                             prompt_with_context = user_text

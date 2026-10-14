@@ -1,0 +1,88 @@
+{
+  "name": "video-projection",
+  "version": "0.1.0",
+  "private": true,
+  "main": "electron-main.js",
+  "scripts": {
+    "postinstall": "node -e \"if (process.platform === 'linux') { try { require('fs').chmodSync('node_modules/electron/dist/chrome-sandbox', 0o4755); } catch(e){} }\"",
+    "dev": "npm install && npm run build && NODE_ENV=production electron . --no-sandbox",
+    "dev:electron": "electron . --no-sandbox --dev",
+    "dev:electron:dual": "electron . --no-sandbox --dev --dual-screen",
+    "dev:next-only": "node server.js",
+    "build": "next build",
+    "build:electron": "next build && electron-builder",
+    "build:rpi": "next build && electron-builder --linux --armv7l",
+    "start": "npm install && npm run build && node start-dev-with-electron.js",
+    "start:electron": "NODE_ENV=production electron . --no-sandbox",
+    "start:prod": "NODE_ENV=production electron . --no-sandbox",
+    "start:browser": "NODE_ENV=production node server.js & node start-browser-windows.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "electron": "^39.2.5",
+    "electron-builder": "^26.0.12",
+    "electron-is-dev": "^3.0.1",
+    "@radix-ui/react-slot": "^1.2.3",
+    "@react-three/drei": "^9.100.0",
+    "@react-three/fiber": "^8.15.19",
+    "@use-gesture/react": "^10.2.27",
+    "class-variance-authority": "^0.7.1",
+    "framer-motion": "^10.16.4",
+    "lucide-react": "^0.263.1",
+    "next": "14.2.33",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tailwind-merge": "^3.3.1",
+    "tailwindcss-animate": "^1.0.7",
+    "three": "^0.161.0",
+    "ws": "^8.14.2"
+  },
+  "build": {
+    "appId": "com.videoproj.tv",
+    "productName": "Video Projection TV",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron-main.js",
+      "next.config.js",
+      "public/**/*",
+      "src/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64", "armv7l", "arm64"]
+        },
+        {
+          "target": "deb",
+          "arch": ["x64", "armv7l", "arm64"]
+        }
+      ],
+      "category": "AudioVideo"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg"
+    }
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@types/three": "^0.161.0",
+    "@types/ws": "^8.5.8",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.5",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

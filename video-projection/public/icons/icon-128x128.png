@@ -1,0 +1,31 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="arcReactor" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#3b82f6;stop-opacity:0.8" />
+      <stop offset="100%" style="stop-color:#1e40af;stop-opacity:0.6" />
+    </radialGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge> 
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Outer ring -->
+  <circle cx="128_HALF" cy="128_HALF" r="128_QUARTER" fill="none" stroke="#3b82f6" stroke-width="2" filter="url(#glow)"/>
+  
+  <!-- Inner core -->
+  <circle cx="128_HALF" cy="128_HALF" r="128_EIGHTH" fill="url(#arcReactor)" filter="url(#glow)"/>
+  
+  <!-- Play triangle -->
+  <polygon points="128_PLAY_X1,128_PLAY_Y1 128_PLAY_X2,128_PLAY_Y2 128_PLAY_X3,128_PLAY_Y3" fill="#ffffff" opacity="0.9"/>
+  
+  <!-- Arc reactor lines -->
+  <g stroke="#60a5fa" stroke-width="1" opacity="0.7">
+    <line x1="128_HALF" y1="128_QUARTER_OFFSET" x2="128_HALF" y2="128_THREE_QUARTER_OFFSET"/>
+    <line x1="128_QUARTER_OFFSET" y1="128_HALF" x2="128_THREE_QUARTER_OFFSET" y2="128_HALF"/>
+  </g>
+</svg>
