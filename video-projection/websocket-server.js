@@ -130,7 +130,7 @@ function broadcastToIoTControllers(command) {
         action: command.action,
         videoUrl: command.videoUrl || undefined,
         productName: command.productName || undefined,
-        productId: command.productId || undefined,
+        productId: command.productId ?? undefined,
         seekTime: command.seekTime || undefined
     });
 

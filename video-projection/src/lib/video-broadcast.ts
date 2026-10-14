@@ -6,6 +6,7 @@ let currentVideoState = {
   action: 'stop' as 'play' | 'pause' | 'stop' | 'seek' | 'restart' | 'swap',
   videoUrl: '' as string | undefined,
   productName: '' as string | undefined,
+  productId: undefined as number | string | undefined,
   seekTime: undefined as number | undefined,
   timestamp: Date.now()
 };
@@ -32,6 +33,7 @@ export function broadcastVideoCommand(command: {
   action: 'play' | 'pause' | 'stop' | 'seek' | 'restart' | 'swap';
   videoUrl?: string;
   productName?: string;
+  productId?: number | string;
   seekTime?: number;
 }) {
   // Update current state
@@ -39,6 +41,7 @@ export function broadcastVideoCommand(command: {
     action: command.action,
     videoUrl: command.videoUrl ?? currentVideoState.videoUrl,
     productName: command.productName ?? currentVideoState.productName,
+    productId: command.productId ?? currentVideoState.productId,
     seekTime: command.seekTime,
     timestamp: Date.now()
   };
