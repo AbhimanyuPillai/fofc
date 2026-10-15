@@ -413,7 +413,7 @@ def _dispatch_projection_playback(action: str, state: Dict[str, Any]) -> None:
 
 
 def _dispatch_projection_selection(state: Dict[str, Any], event_type: str) -> None:
-    """Forward a valid product selection without waiting on the HTTP catalog."""
+    """Sync screen selection into the agent; announce only explicit carousel swaps."""
     raw_product_id = state.get("productId")
     if (raw_product_id is None or isinstance(raw_product_id, bool) or
             (isinstance(raw_product_id, float) and not raw_product_id.is_integer())):
@@ -423,14 +423,23 @@ def _dispatch_projection_selection(state: Dict[str, Any], event_type: str) -> No
     except (TypeError, ValueError):
         return
 
+    product = get_product(product_id)
+    if not product:
+        refresh_product_catalog()
+        product = get_product(product_id)
+    if not product:
+        print(f"[PROJECTION SYNC] Ignoring unknown product ID {product_id} from {event_type}")
+        return
+
     with _selection_callback_lock:
         callback = _selection_callback
     if callback is None:
         print(f"[PROJECTION SYNC] Received product ID {product_id}, but no agent callback is registered")
         return
     try:
-        product_name = state.get("productName")
-        if callback(product_id, product_name):
+        product_name = product.get("name") or state.get("productName")
+        announce = event_type == "swap"
+        if callback(product_id, product_name, announce):
             print(
                 f"[PROJECTION SYNC] Active board updated from {event_type}: "
                 f"{product_name or f'Product {product_id}'} (product ID {product_id})"
@@ -551,6 +560,8 @@ def detect_video_intent(text: str) -> Optional[str]:
         return "stop"
     if re.search(r"\bpause\b.{0,24}\b(video|demo|playback)\b|\bpause playing\b", normalized):
         return "pause"
+    if re.search(r"\b(resume|continue|unpause)\b.{0,24}\b(video|demo|playback)\b|\bresume\b", normalized):
+        return "resume"
     if re.search(r"\b(play|start|show|watch|see)\b.{0,40}\b(demo|video)\b", normalized):
         return "play"
     return None
@@ -575,10 +586,6 @@ def _play_worker() -> None:
                 continue
             product = product or {}
             video_url = product.get("videoUrl") or product.get("video_url")
-            if action == "play" and not video_url:
-                print(f"[PROJECTION BRIDGE] Product ID {product_id} has no video URL")
-                continue
-
             payload = {"action": action}
             if product_id is not None:
                 payload.update({
@@ -598,8 +605,6 @@ def _play_worker() -> None:
             if result.get("success"):
                 product_suffix = f" for product ID {product_id}" if product_id is not None else ""
                 print(f"[PROJECTION BRIDGE] Sent {action} command{product_suffix} to projection software")
-                if action in ("play", "pause", "stop"):
-                    _dispatch_projection_playback(action, payload)
             else:
                 print(f"[PROJECTION BRIDGE] Projection software did not confirm {action}: {result}")
         except Exception as exc:
@@ -650,7 +655,7 @@ def point_to_product(product_id: Optional[int]) -> bool:
 
 
 def play_product(product_id: Optional[int]) -> bool:
-    """Queue playback of the selected product's demo video."""
+    """Send playback for a product and return whether the projection app accepted it."""
     try:
         if product_id is None:
             return False
@@ -661,30 +666,58 @@ def play_product(product_id: Optional[int]) -> bool:
             product = get_product(product_id)
         if not product or not (product.get("videoUrl") or product.get("video_url")):
             return False
-        _play_queue.put_nowait(("play", product_id))
-        return True
+        return _send_video_command({
+            "action": "play",
+            "productId": product_id,
+            "productName": product.get("name", f"Product {product_id}"),
+            "videoUrl": product.get("videoUrl") or product.get("video_url"),
+        })
     except (TypeError, ValueError):
         return False
-    except queue.Full:
-        print("[PROJECTION BRIDGE] Command queue is full; dropping video play request")
-        return False
 
 
-def stop_video() -> bool:
-    """Queue a stop command for the projection TV."""
+def _send_video_command(payload: Dict[str, Any]) -> bool:
+    """Send a playback command synchronously so callers can report its real API result."""
     try:
-        _play_queue.put_nowait(("stop", None))
-        return True
-    except queue.Full:
-        print("[PROJECTION BRIDGE] Command queue is full; dropping video stop request")
+        response = requests.post(VIDEO_CONTROL_URL, json=payload, timeout=1.5)
+        response.raise_for_status()
+        result = response.json()
+        success = bool(result.get("success"))
+        if success:
+            _dispatch_projection_playback(str(payload.get("action") or ""), payload)
+            return True
+        print(f"[PROJECTION BRIDGE] Projection app rejected {payload.get('action')}: {result}")
+        return False
+    except Exception as exc:
+        print(f"[PROJECTION BRIDGE] Could not send {payload.get('action')} command: {exc}")
         return False
 
 
-def pause_video() -> bool:
-    """Queue a pause command for the projection TV."""
-    try:
-        _play_queue.put_nowait(("pause", None))
-        return True
-    except queue.Full:
-        print("[PROJECTION BRIDGE] Command queue is full; dropping video pause request")
-        return False
+def _selected_product_payload(product_id: Optional[int]) -> Dict[str, Any]:
+    """Retain the active board identity when sending pause/stop commands."""
+    product = get_product(product_id) if product_id is not None else None
+    if not product:
+        return {}
+    payload = {
+        "productId": int(product["id"]),
+        "productName": product.get("name", f"Product {product_id}"),
+    }
+    video_url = product.get("videoUrl") or product.get("video_url")
+    if video_url:
+        payload["videoUrl"] = video_url
+    return payload
+
+
+def stop_video(product_id: Optional[int] = None) -> bool:
+    """Stop playback while preserving the selected board in projection state."""
+    return _send_video_command({"action": "stop", **_selected_product_payload(product_id)})
+
+
+def pause_video(product_id: Optional[int] = None) -> bool:
+    """Pause playback while preserving the selected board in projection state."""
+    return _send_video_command({"action": "pause", **_selected_product_payload(product_id)})
+
+
+def resume_video(product_id: Optional[int] = None) -> bool:
+    """Resume the last selected product's video through its existing play endpoint."""
+    return play_product(product_id)

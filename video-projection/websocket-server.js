@@ -125,13 +125,15 @@ function initializeWebSocketServer(server) {
 
 // Function to broadcast video commands to all connected IoT controllers
 function broadcastToIoTControllers(command) {
-    // Update current state using global state management
+    // Keep the selected product and its media metadata through pause/stop events.
+    // Commands such as the TV's natural onEnded notification often omit these fields.
+    const previousState = getCurrentVideoState();
     setCurrentVideoState({
         action: command.action,
-        videoUrl: command.videoUrl || undefined,
-        productName: command.productName || undefined,
-        productId: command.productId ?? undefined,
-        seekTime: command.seekTime || undefined
+        videoUrl: command.videoUrl ?? previousState.videoUrl,
+        productName: command.productName ?? previousState.productName,
+        productId: command.productId ?? previousState.productId,
+        seekTime: command.seekTime ?? previousState.seekTime
     });
 
     const message = {

@@ -12,10 +12,15 @@ class MockBridge:
         self.callback = None
     def set_playback_callback(self, cb):
         self.callback = cb
-    def pause_video(self):
+    def pause_video(self, product_id=None):
         self.paused = True
-    def stop_video(self):
+        return True
+    def stop_video(self, product_id=None):
         self.stopped = True
+        return True
+    def resume_video(self, product_id=None):
+        self.paused = False
+        return True
 
 class MockDashboard:
     def __init__(self):
@@ -37,6 +42,13 @@ test_cases = [
     ("hey repos stop playback", "stop"),
     ("repos pause", "pause"),
     ("repos stop", "stop"),
+    ("hey repos resume the video", "resume"),
+    ("hey repos resume", "resume"),
+    ("hey repos continue the demo", "resume"),
+    ("repos resume", "resume"),
+    ("pause the video", None),  # General instruction without wake word
+    ("stop the video", None),   # General instruction without wake word
+    ("resume the video", None), # General instruction without wake word
     ("can you explain to me what one sync does?", None),
     ("the smart c throttle controller prevents runaway", None),
     ("what is the price of this board", None),
@@ -85,5 +97,26 @@ assert video_controller.is_active() == True
 mock_bridge.callback("stop", {})
 assert video_controller.is_active() == False
 print("[TEST 7 PASSED] Video natural finish (stop event) restores normal mode automatically.")
+
+# Test 8: Resume command restores playback and partial standby
+mock_bridge.callback("play", {"productId": 5})
+assert video_controller.is_active() == True
+video_controller.execute_pause(mock_speak)
+assert video_controller.is_active() == False
+video_controller.execute_resume(mock_speak)
+assert video_controller.is_active() == True
+assert "Resuming the video." in spoken
+print("[TEST 8 PASSED] Resume command executed, confirmation spoken, partial standby restored.")
+
+# Test 9: Stop really stops the projected video and restores a live agent state.
+mock_bridge.callback("play", {"productId": 7})
+assert video_controller.is_active() is True
+assert video_controller.handle_if_active("hey repos stop the video", mock_speak) is True
+assert mock_bridge.stopped is True
+assert video_controller.is_active() is False
+assert video_controller.has_video_session() is False
+assert mock_dashboard.state == "ACTIVE"
+assert "Stopping the video." in spoken
+print("[TEST 9 PASSED] Stop command clears playback session and leaves the agent ACTIVE.")
 
 print("\n>>> ALL TESTS PASSED SUCCESSFULLY! <<<")

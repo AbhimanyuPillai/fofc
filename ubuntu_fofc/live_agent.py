@@ -406,8 +406,9 @@ def latch_hardware_product(product_id: int, source: str, send_to_projection: boo
     return True
 
 
-def on_projection_product_selected(product_id: int, product_name: Optional[str] = None) -> bool:
-    """Mirror carousel selection into agent context without sending it back."""
+def on_projection_product_selected(product_id: int, product_name: Optional[str] = None,
+                                   announce: bool = True) -> bool:
+    """Mirror projection selection into agent context without echoing it back."""
     global current_pointed_board, current_pointed_product_id
     product = projection_bridge.get_product(product_id)
     name = str(product_name or (product or {}).get("name") or f"Product {product_id}").strip()
@@ -419,39 +420,81 @@ def on_projection_product_selected(product_id: int, product_name: Optional[str] 
     print(f"[HARDWARE] Selected active board from projection carousel: {name} (product ID {product_id})")
     if "dashboard_server" in globals() and hasattr(dashboard_server, "set_hardware_focus"):
         dashboard_server.set_hardware_focus(name, product_id=int(product_id))
-    queue_board_announcement(name, int(product_id), is_carousel=True)
+    if announce:
+        queue_board_announcement(name, int(product_id), is_carousel=True)
     return True
 
 
-def handle_video_request(text: str, source: str) -> Optional[str]:
-    """Queue an explicit play/pause/stop request and return truthful LLM guidance."""
+def handle_video_request(text: str, source: str) -> bool:
+    """Execute video play/pause/stop/resume directly with instant speech confirmation.
+
+    Returns True if handled (skips Ollama LLM), False if not a video request.
+    """
     intent = projection_bridge.detect_video_intent(text)
     if not intent:
-        return None
+        return False
 
-    if intent == "stop":
-        queued = projection_bridge.stop_video()
-        return ("The video stop command was sent to the projection TV. Confirm briefly."
-                if queued else "The video stop command could not be queued. Tell the visitor plainly.")
-    if intent == "pause":
-        queued = projection_bridge.pause_video()
-        return ("The video pause command was sent to the projection TV. Confirm briefly."
-                if queued else "The video pause command could not be queued. Tell the visitor plainly.")
+    # For pause, stop, and resume: require the wake word ("Hey Repos") as specified by safety rules
+    if intent in ("pause", "stop", "resume"):
+        cleaned = " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
+        has_wake = bool(re.search(r"(?:\b(?:hey|hay|ay)\s+(?:repos|repose|raypos|repo|ripples|rappos)\b|\brepos\b)", cleaned))
+        if not has_wake:
+            return False  # General instruction without wake word; do not trigger pause/stop/resume
 
+        controller = video_playback_controller.video_controller
+        if intent == "pause" and not controller.is_active():
+            msg = "There isn't a demo video playing right now."
+            speak_direct(msg, allow_interrupt=False)
+            return True
+        if intent == "stop" and not controller.has_video_session():
+            msg = "There isn't a demo video to stop right now."
+            speak_direct(msg, allow_interrupt=False)
+            return True
+
+        if intent == "pause":
+            controller.execute_pause(speak_direct)
+            return True
+        elif intent == "stop":
+            controller.execute_stop(speak_direct)
+            return True
+        elif intent == "resume":
+            controller.execute_resume(speak_direct)
+            return True
+
+    # Play video intent:
     product = projection_bridge.find_product_by_text(text)
     if not product:
         with pointed_board_lock:
             pointed_id = current_pointed_product_id
         product = projection_bridge.get_product(pointed_id) if pointed_id is not None else None
+
     if not product:
-        return "No board was identified for this demo request. Ask which board's demo they want to see."
+        msg = "Which board would you like to see the demo video for?"
+        print(f"[AGENT]: \"{msg}\"")
+        speak_direct(msg, allow_interrupt=False)
+        return True
 
     product_id = int(product["id"])
     product_name = str(product.get("name") or f"Product {product_id}").strip()
     latch_hardware_product(product_id, source, send_to_projection=False)
+
+    video_url = product.get("videoUrl") or product.get("video_url")
+    if not video_url:
+        msg = f"The {product_name} board doesn't have a demo video available."
+        print(f"[AGENT]: \"{msg}\"")
+        speak_direct(msg, allow_interrupt=False)
+        return True
+
     if projection_bridge.play_product(product_id):
-        return f"The {product_name} demo playback command was sent to the projection TV. Confirm briefly and naturally."
-    return f"The {product_name} product has no demo video URL configured. Tell the visitor the demo is unavailable."
+        msg = "I'll play the demo video on the TV right now."
+        print(f"[AGENT]: \"{msg}\"")
+        speak_direct(msg, allow_interrupt=False)
+        return True
+    else:
+        msg = "I couldn't connect to the TV to start that demo video."
+        print(f"[AGENT]: \"{msg}\"")
+        speak_direct(msg, allow_interrupt=False)
+        return True
 
 DEVICE_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "device_config.json")
 
@@ -1163,6 +1206,14 @@ def clear_all_queues():
         except queue.Empty:
             break
 
+def discard_pending_mic_audio():
+    """Drop captured audio from agent confirmations before resuming recognition."""
+    while not audio_queue.empty():
+        try:
+            audio_queue.get_nowait()
+        except queue.Empty:
+            break
+
 def speak_direct(text: str, spoken_text: Optional[str] = None, speech_generation: Optional[int] = None, allow_interrupt: bool = False):
     global is_agent_speaking, interrupt_requested
     generation = current_speech_generation() if speech_generation is None else speech_generation
@@ -1582,12 +1633,21 @@ def stream_brain_to_voice(user_text: str):
             dashboard_server.set_state("ACTIVE")
         time.sleep(0.15)
 
+def on_projection_playback_event(action: str, event_state: Dict[str, Any]):
+    """Apply TV playback state and refresh the booth's inactivity timer."""
+    global last_interaction_time
+    video_playback_controller.video_controller.on_projection_playback_event(action, event_state)
+    if str(action or "").lower().strip() in {"play", "pause", "stop"}:
+        last_interaction_time = time.time()
+
+
 def main():
     global is_agent_speaking, interrupt_requested, state, last_interaction_time
 
     projection_bridge.set_selection_callback(on_projection_product_selected)
-    projection_bridge.start()
     video_playback_controller.video_controller.init(projection_bridge, dashboard_server)
+    projection_bridge.set_playback_callback(on_projection_playback_event)
+    projection_bridge.start()
 
 
     try:
@@ -1703,6 +1763,21 @@ def main():
                 print(f"\n[TYPED PROMPT]: {typed_msg}")
 
                 typed_clean = re.sub(r'[^a-zA-Z0-9\s]', '', typed_msg.lower()).strip()
+                if video_playback_controller.video_controller.handle_if_active(typed_msg, speak_direct):
+                    discard_pending_mic_audio()
+                    continue
+                if handle_video_request(typed_msg, "typed video request"):
+                    discard_pending_mic_audio()
+                    last_interaction_time = time.time()
+                    vad_iterator.reset_states()
+                    speech_buffer = []
+                    pre_buffer.clear()
+                    is_speaking_now = False
+                    silence_frames = 0
+                    dashboard_server.set_state("ACTIVE")
+                    print("\n[READY - Speak, type next question, or wait for standby...]")
+                    continue
+
                 sleep_commands = [
                     "repos standby", "repers standby", "standby mode", "go into standby",
                     "repos stop", "repos go to sleep", "go to sleep", "stop listening"
@@ -1725,18 +1800,14 @@ def main():
                     is_speaking_now = False
                     silence_frames = 0
                     print("\n[STATUS: SLEEPING] Listening for 'Hey Repos' or typed text...\n")
-                if video_playback_controller.video_controller.handle_if_active(typed_msg, speak_direct):
                     continue
-
                 state = "ACTIVE"
 
                 dashboard_server.set_state("THINKING")
                 dashboard_server.broadcast_transcript("YOU", typed_msg)
-                video_guidance = handle_video_request(typed_msg, "typed video request")
-                if video_guidance is None:
-                    matched_product = projection_bridge.find_product_by_text(typed_msg)
-                    if matched_product:
-                        latch_hardware_product(int(matched_product["id"]), "typed question")
+                matched_product = projection_bridge.find_product_by_text(typed_msg)
+                if matched_product:
+                    latch_hardware_product(int(matched_product["id"]), "typed question")
                 vad_iterator.reset_states()
                 speech_buffer = []
                 pre_buffer.clear()
@@ -1744,12 +1815,7 @@ def main():
                 silence_frames = 0
 
                 pointed_context = get_active_pointed_context()
-                if video_guidance:
-                    prompt_with_context = (
-                        f"{typed_msg}\n[System action status: {video_guidance} "
-                        "Respond briefly and naturally, following that status.]"
-                    )
-                elif pointed_context:
+                if pointed_context:
                     prompt_with_context = f"{typed_msg}\n{pointed_context}"
                 else:
                     prompt_with_context = typed_msg
@@ -1821,7 +1887,8 @@ def main():
                             wake_audio = np.concatenate(speech_buffer, axis=0).flatten()
                             wake_rms = float(np.sqrt(np.mean(wake_audio**2)))
 
-                            if wake_rms > max(0.005, ambient_noise_rms * 1.3):
+                            wake_rms_gate = max(0.003, ambient_noise_rms * 1.2)
+                            if wake_rms > wake_rms_gate:
                                 segments, _ = stt_model.transcribe(
                                     wake_audio,
                                     beam_size=1,                         # Greedy search for sub-100ms latency
@@ -1852,6 +1919,8 @@ def main():
                                     dashboard_server.set_state("ACTIVE")
                                     print("[STATUS: ACTIVE] Conversational loop engaged...\n")
                                     continue
+                            else:
+                                print(f"[AUDIO GATE] Wake audio too quiet: rms={wake_rms:.4f}, room={ambient_noise_rms:.4f}, required>{wake_rms_gate:.4f}")
 
                         # If no match, discard audio buffer, reset VAD states, and continue in SLEEPING
                         speech_buffer = []
@@ -1864,7 +1933,9 @@ def main():
 
             # 5. STATE: ACTIVE (Conversational Loop)
             if state == "ACTIVE":
-                if not is_speaking_now and (current_time - last_interaction_time > INACTIVITY_TIMEOUT):
+                if (not is_speaking_now and
+                        not video_playback_controller.video_controller.is_active() and
+                        current_time - last_interaction_time > INACTIVITY_TIMEOUT):
                     print(f"\n[INACTIVITY TIMEOUT] No activity for {INACTIVITY_TIMEOUT}s.")
                     audio_feedback.play_sleep_chime()
                     dashboard_server.set_state("SLEEPING")
@@ -1938,9 +2009,12 @@ def main():
 
                         # Dynamic Signal-to-Noise Ratio (SNR) Gate:
                         # Must distinctly stand out above ambient hall noise floor and exceed minimum threshold
-                        if speech_rms <= (ambient_noise_rms * 1.5) or speech_rms <= 0.005:
+                        speech_rms_gate = max(0.003, ambient_noise_rms * 1.2)
+                        if speech_rms <= speech_rms_gate:
+                            print(f"[AUDIO GATE] Speech below level/SNR gate: rms={speech_rms:.4f}, room={ambient_noise_rms:.4f}, required>{speech_rms_gate:.4f}")
                             dashboard_server.set_state("ACTIVE")
                             continue
+                        print(f"[AUDIO LEVEL] Captured speech RMS={speech_rms:.4f}; room RMS={ambient_noise_rms:.4f}")
 
                         print("\n[TRANSCRIBING...]")
                         segments, info = stt_model.transcribe(
@@ -1957,23 +2031,27 @@ def main():
                         )
                         segment_list = list(segments)
                         if not segment_list:
+                            print("[ASR GATE] Whisper returned no transcription segments for captured speech.")
                             dashboard_server.set_state("ACTIVE")
                             continue
 
                         primary_seg = segment_list[0]
 
                         # Whisper Quality Gate 1: Reject non-speech audio
-                        if primary_seg.no_speech_prob > 0.35:
+                        if primary_seg.no_speech_prob > 0.50:
+                            print(f"[ASR GATE] Rejected as non-speech: no_speech_prob={primary_seg.no_speech_prob:.2f}")
                             dashboard_server.set_state("ACTIVE")
                             continue
 
                         # Whisper Quality Gate 2: Reject low-confidence acoustic murmurs
-                        if primary_seg.avg_logprob < -0.60:
+                        if primary_seg.avg_logprob < -0.85:
+                            print(f"[ASR GATE] Low transcription confidence: avg_logprob={primary_seg.avg_logprob:.2f}")
                             dashboard_server.set_state("ACTIVE")
                             continue
 
                         # Whisper Quality Gate 3: Reject repetitive hallucination loops
                         if primary_seg.compression_ratio > 2.2 or any(s.compression_ratio > 2.2 for s in segment_list):
+                            print(f"[ASR GATE] Rejected repetitive transcription: compression_ratio={primary_seg.compression_ratio:.2f}")
                             dashboard_server.set_state("ACTIVE")
                             continue
 
@@ -1983,35 +2061,12 @@ def main():
 
                         # Intercept speech during video playback partial standby
                         if video_playback_controller.video_controller.handle_if_active(user_text, speak_direct):
+                            discard_pending_mic_audio()
+                            if video_playback_controller.video_controller.evaluate_standby_speech(user_text):
+                                last_interaction_time = time.time()
                             speech_buffer = []
                             pre_buffer.clear()
                             vad_iterator.reset_states()
-                            continue
-
-                        # Manual Sleep Command Gate
-
-                        sleep_commands = [
-                            "repos standby", "repers standby", "standby mode", "go into standby",
-                            "repos stop", "repos go to sleep", "go to sleep", "stop listening"
-                        ]
-                        if any(cmd in user_text_clean for cmd in sleep_commands):
-                            print(f"\n[MANUAL SLEEP COMMAND DETECTED: '{user_text}']")
-                            audio_feedback.play_sleep_chime()
-                            dashboard_server.set_hardware_focus(None)
-                            speak_direct("Standing by. Just say 'Hey Repos' when you need me.")
-                            while not audio_queue.empty():
-                                try:
-                                    audio_queue.get_nowait()
-                                except queue.Empty:
-                                    break
-                            state = "SLEEPING"
-                            dashboard_server.set_state("SLEEPING")
-                            vad_iterator.reset_states()
-                            speech_buffer = []
-                            pre_buffer.clear()
-                            is_speaking_now = False
-                            silence_frames = 0
-                            print("\n[STATUS: SLEEPING] Listening for 'Hey Repos' or typed text...\n")
                             continue
 
                         # Rejection Gate 4: Whisper phantom watermark/hallucination phrases
@@ -2053,19 +2108,50 @@ def main():
                         print(f"\n[YOU]: {user_text}")
                         dashboard_server.broadcast_transcript("YOU", user_text)
 
-                        video_guidance = handle_video_request(user_text, "spoken video request")
-                        if video_guidance is None:
-                            matched_product = projection_bridge.find_product_by_text(user_text)
-                            if matched_product:
-                                latch_hardware_product(int(matched_product["id"]), "spoken question")
+                        if handle_video_request(user_text, "spoken video request"):
+                            discard_pending_mic_audio()
+                            last_interaction_time = time.time()
+                            vad_iterator.reset_states()
+                            speech_buffer = []
+                            pre_buffer.clear()
+                            is_speaking_now = False
+                            silence_frames = 0
+                            dashboard_server.set_state("ACTIVE")
+                            print("\n[READY - Speak, type, or wait for standby...]")
+                            continue
+
+                        # Explicit playback controls take precedence over the ambiguous
+                        # "Repos stop" standby phrase (e.g. "Repos stop the video").
+                        sleep_commands = [
+                            "repos standby", "repers standby", "standby mode", "go into standby",
+                            "repos stop", "repos go to sleep", "go to sleep", "stop listening"
+                        ]
+                        if any(cmd in user_text_clean for cmd in sleep_commands):
+                            print(f"\n[MANUAL SLEEP COMMAND DETECTED: '{user_text}']")
+                            audio_feedback.play_sleep_chime()
+                            dashboard_server.set_hardware_focus(None)
+                            speak_direct("Standing by. Just say 'Hey Repos' when you need me.")
+                            while not audio_queue.empty():
+                                try:
+                                    audio_queue.get_nowait()
+                                except queue.Empty:
+                                    break
+                            state = "SLEEPING"
+                            dashboard_server.set_state("SLEEPING")
+                            vad_iterator.reset_states()
+                            speech_buffer = []
+                            pre_buffer.clear()
+                            is_speaking_now = False
+                            silence_frames = 0
+                            print("\n[STATUS: SLEEPING] Listening for 'Hey Repos' or typed text...\n")
+                            continue
+
+                        matched_product = projection_bridge.find_product_by_text(user_text)
+                        if matched_product:
+                            latch_hardware_product(int(matched_product["id"]), "spoken question")
 
                         pointed_context = get_active_pointed_context()
-                        if video_guidance:
-                            prompt_with_context = (
-                                f"{user_text}\n[System action status: {video_guidance} "
-                                "Respond briefly and naturally, following that status.]"
-                            )
-                        elif pointed_context:
+                        if pointed_context:
                             prompt_with_context = f"{user_text}\n{pointed_context}"
                         else:
                             prompt_with_context = user_text
