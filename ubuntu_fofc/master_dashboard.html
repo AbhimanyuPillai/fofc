@@ -407,6 +407,7 @@
       .face-sample-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
     }
 
+    /* Short laptop/tablet viewports need space for the enrollment form and samples. */
     @media (min-width: 851px) and (max-height: 760px) {
       .admin-workspace { padding:.6rem .85rem; gap:.5rem; }
       .admin-workspace-header { min-height:34px; padding-bottom:.35rem; }
@@ -1077,8 +1078,10 @@
         if (rawText.toLowerCase().includes('listening')) stateVal = 'LISTENING';
         else if (rawText.toLowerCase().includes('speaking')) stateVal = 'SPEAKING';
         else if (rawText.toLowerCase().includes('thinking')) stateVal = 'THINKING';
+        else if (rawText.toLowerCase().includes('video')) stateVal = 'VIDEO PLAYING';
         else if (rawText.toLowerCase().includes('sleeping') || rawText.toLowerCase().includes('standby')) stateVal = 'SLEEPING';
         else if (rawText.toLowerCase().includes('active')) stateVal = 'ACTIVE';
+
 
         const pillRow = document.createElement('div');
         pillRow.className = 'status-pill-row';

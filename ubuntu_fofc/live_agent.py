@@ -23,6 +23,8 @@ from faster_whisper import WhisperModel
 import audio_feedback
 import dashboard_server
 import projection_bridge
+import video_playback_controller
+
 
 import onnxruntime as ort
 from kokoro_onnx import Kokoro
@@ -1315,6 +1317,8 @@ def main():
 
     projection_bridge.set_selection_callback(on_projection_product_selected)
     projection_bridge.start()
+    video_playback_controller.video_controller.init(projection_bridge, dashboard_server)
+
 
     try:
         dashboard_server.start_dashboard_server(port=8088)
@@ -1688,7 +1692,15 @@ def main():
                         user_text_lower = user_text.lower().strip()
                         user_text_clean = re.sub(r'[^a-zA-Z0-9\s]', '', user_text_lower).strip()
 
+                        # Intercept speech during video playback partial standby
+                        if video_playback_controller.video_controller.handle_if_active(user_text, speak_direct):
+                            speech_buffer = []
+                            pre_buffer.clear()
+                            vad_iterator.reset_states()
+                            continue
+
                         # Manual Sleep Command Gate
+
                         sleep_commands = [
                             "repos standby", "repers standby", "standby mode", "go into standby",
                             "repos stop", "repos go to sleep", "go to sleep", "stop listening"

@@ -1078,8 +1078,10 @@
         if (rawText.toLowerCase().includes('listening')) stateVal = 'LISTENING';
         else if (rawText.toLowerCase().includes('speaking')) stateVal = 'SPEAKING';
         else if (rawText.toLowerCase().includes('thinking')) stateVal = 'THINKING';
+        else if (rawText.toLowerCase().includes('video')) stateVal = 'VIDEO PLAYING';
         else if (rawText.toLowerCase().includes('sleeping') || rawText.toLowerCase().includes('standby')) stateVal = 'SLEEPING';
         else if (rawText.toLowerCase().includes('active')) stateVal = 'ACTIVE';
+
 
         const pillRow = document.createElement('div');
         pillRow.className = 'status-pill-row';

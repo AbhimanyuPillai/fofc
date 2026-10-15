@@ -387,6 +387,31 @@ def set_selection_callback(callback) -> None:
         _selection_callback = callback
 
 
+_playback_callback = None
+_playback_callback_lock = threading.Lock()
+
+
+def set_playback_callback(callback) -> None:
+    """Register callback for video playback state changes (play, pause, stop)."""
+    global _playback_callback
+    with _playback_callback_lock:
+        _playback_callback = callback
+
+
+def _dispatch_projection_playback(action: str, state: Dict[str, Any]) -> None:
+    """Notify registered playback listeners of play, pause, or stop events."""
+    if not action or not isinstance(action, str):
+        return
+    with _playback_callback_lock:
+        callback = _playback_callback
+    if callback is not None:
+        try:
+            callback(action.lower().strip(), state)
+        except Exception as exc:
+            print(f"[PROJECTION SYNC] Playback callback error: {exc}")
+
+
+
 def _dispatch_projection_selection(state: Dict[str, Any], event_type: str) -> None:
     """Resolve and forward a valid product selection without echoing it back."""
     raw_product_id = state.get("productId")
@@ -452,6 +477,10 @@ async def _projection_selection_listener() -> None:
 
                     if isinstance(current_state, dict):
                         _dispatch_projection_selection(current_state, event_type)
+                        action = current_state.get("action")
+                        if action and isinstance(action, str):
+                            _dispatch_projection_playback(action, current_state)
+
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -575,6 +604,8 @@ def _play_worker() -> None:
             if result.get("success"):
                 product_suffix = f" for product ID {product_id}" if product_id is not None else ""
                 print(f"[PROJECTION BRIDGE] Sent {action} command{product_suffix} to projection software")
+                if action in ("play", "pause", "stop"):
+                    _dispatch_projection_playback(action, payload)
             else:
                 print(f"[PROJECTION BRIDGE] Projection software did not confirm {action}: {result}")
         except Exception as exc:

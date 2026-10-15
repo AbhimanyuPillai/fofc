@@ -23,6 +23,8 @@ from faster_whisper import WhisperModel
 import audio_feedback
 import dashboard_server
 import projection_bridge
+import video_playback_controller
+
 
 # Windows CUDA / DLL directory configuration for ONNX Runtime GPU
 if sys.platform.startswith("win"):
@@ -1334,6 +1336,8 @@ def main():
 
     projection_bridge.set_selection_callback(on_projection_product_selected)
     projection_bridge.start()
+    video_playback_controller.video_controller.init(projection_bridge, dashboard_server)
+
 
     try:
         try:
@@ -1470,9 +1474,11 @@ def main():
                     is_speaking_now = False
                     silence_frames = 0
                     print("\n[STATUS: SLEEPING] Listening for 'Hey Repos' or typed text...\n")
+                if video_playback_controller.video_controller.handle_if_active(typed_msg, speak_direct):
                     continue
 
                 state = "ACTIVE"
+
                 dashboard_server.set_state("THINKING")
                 dashboard_server.broadcast_transcript("YOU", typed_msg)
                 video_guidance = handle_video_request(typed_msg, "typed video request")
@@ -1718,7 +1724,15 @@ def main():
                         user_text_lower = user_text.lower().strip()
                         user_text_clean = re.sub(r'[^a-zA-Z0-9\s]', '', user_text_lower).strip()
 
+                        # Intercept speech during video playback partial standby
+                        if video_playback_controller.video_controller.handle_if_active(user_text, speak_direct):
+                            speech_buffer = []
+                            pre_buffer.clear()
+                            vad_iterator.reset_states()
+                            continue
+
                         # Manual Sleep Command Gate
+
                         sleep_commands = [
                             "repos standby", "repers standby", "standby mode", "go into standby",
                             "repos stop", "repos go to sleep", "go to sleep", "stop listening"
