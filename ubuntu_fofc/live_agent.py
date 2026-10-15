@@ -259,6 +259,7 @@ vad_model, utils = torch.hub.load(
     onnx=False
 )
 (get_speech_timestamps, save_audio, read_audio, VADIterator, collect_chunks) = utils
+vad_lock = threading.Lock()
 
 # Dynamic ONNX Provider Selection for Kokoro
 available_providers = ort.get_available_providers()
@@ -795,8 +796,9 @@ def audio_callback(indata, frames, time_info, status, input_sample_rate=SAMPLE_R
     if barge_in_capture_active:
         barge_in_capture_frames.append(audio_frame.copy())
         audio_tensor = torch.from_numpy(audio_frame.squeeze())
-        with torch.no_grad():
-            speech_prob = vad_model(audio_tensor, SAMPLE_RATE).item()
+        with vad_lock:
+            with torch.no_grad():
+                speech_prob = vad_model(audio_tensor, SAMPLE_RATE).item()
         barge_in_silence_frames = (
             barge_in_silence_frames + 1 if speech_prob < 0.18 else 0
         )
@@ -817,8 +819,9 @@ def audio_callback(indata, frames, time_info, status, input_sample_rate=SAMPLE_R
     speech_candidate = total_rms >= INTERRUPT_MIN_TOTAL_RMS and vocal_rms >= energy_gate
     if speech_candidate:
         audio_tensor = torch.from_numpy(audio_frame.squeeze())
-        with torch.no_grad():
-            speech_prob = vad_model(audio_tensor, SAMPLE_RATE).item()
+        with vad_lock:
+            with torch.no_grad():
+                speech_prob = vad_model(audio_tensor, SAMPLE_RATE).item()
         interrupt_evidence.append(speech_prob >= INTERRUPT_VAD_THRESHOLD)
     else:
         interrupt_evidence.append(False)
@@ -838,59 +841,102 @@ def audio_callback(indata, frames, time_info, status, input_sample_rate=SAMPLE_R
         interrupt_evidence.clear()
         player.clear()
 
-# Decoupled Audio Playback Worker
-def audio_player_worker():
-    global is_audio_playing, interrupt_requested
-    while True:
-        chunk = playback_queue.get()
-        if chunk is None:
-            playback_queue.task_done()
-            break
-        try:
-            if not interrupt_requested:
-                is_audio_playing = True
-                if isinstance(chunk, tuple):
-                    audio_data, sr = chunk[:2]
-                    generation = chunk[2] if len(chunk) > 2 else None
+# Persistent, non-blocking Audio Playback Stream (zero allocations, no sd.play/sd.stop crashes)
+_active_playback_chunk = None
+_active_playback_offset = 0
+_active_playback_generation = None
+_playback_stream_lock = threading.Lock()
+_output_audio_stream = None
+
+def _output_audio_callback(outdata, frames, time_info, status):
+    global is_audio_playing, _active_playback_chunk, _active_playback_offset, _active_playback_generation
+    written = 0
+    with _playback_stream_lock:
+        while written < frames:
+            if interrupt_requested:
+                _active_playback_chunk = None
+                break
+
+            if _active_playback_chunk is None:
+                try:
+                    item = playback_queue.get_nowait()
+                except queue.Empty:
+                    break
+
+                if item is None:
+                    break
+
+                if isinstance(item, tuple):
+                    audio_data, sr = item[:2]
+                    gen = item[2] if len(item) > 2 else None
                 else:
-                    audio_data, sr = chunk, 24000
-                    generation = None
+                    audio_data, sr = item, 24000
+                    gen = None
+
                 if isinstance(audio_data, torch.Tensor):
                     audio_data = audio_data.detach().cpu().numpy()
-                audio_arr = np.ascontiguousarray(audio_data, dtype=np.float32).squeeze()
-                if audio_arr.size > 0:
-                    with _speech_generation_lock:
-                        if generation is not None and generation != _speech_generation:
-                            continue
-                        if interrupt_requested:
-                            continue
-                    with _audio_playback_lock:
-                        sd.play(audio_arr, samplerate=sr)
-                    try:
-                        sd.wait()
-                    except Exception:
-                        pass
-        except Exception as e:
-            print(f"[AUDIO PLAYBACK ERROR]: {e}")
-        finally:
-            is_audio_playing = False
-            playback_queue.task_done()
 
-threading.Thread(target=audio_player_worker, daemon=True, name="AudioPlayerWorker").start()
+                audio_arr = np.ascontiguousarray(audio_data, dtype=np.float32).squeeze()
+
+                # If speech generation was superseded, drop chunk
+                if gen is not None and not speech_generation_is_current(gen):
+                    playback_queue.task_done()
+                    continue
+
+                if audio_arr.size == 0:
+                    playback_queue.task_done()
+                    continue
+
+                _active_playback_chunk = audio_arr
+                _active_playback_offset = 0
+                _active_playback_generation = gen
+
+            if _active_playback_generation is not None and not speech_generation_is_current(_active_playback_generation):
+                _active_playback_chunk = None
+                playback_queue.task_done()
+                continue
+
+            available = len(_active_playback_chunk) - _active_playback_offset
+            to_write = min(frames - written, available)
+            outdata[written : written + to_write, 0] = _active_playback_chunk[
+                _active_playback_offset : _active_playback_offset + to_write
+            ]
+            written += to_write
+            _active_playback_offset += to_write
+
+            if _active_playback_offset >= len(_active_playback_chunk):
+                _active_playback_chunk = None
+                playback_queue.task_done()
+
+        if written < frames:
+            outdata[written:, 0] = 0
+
+        is_audio_playing = (_active_playback_chunk is not None) or not playback_queue.empty()
+
+try:
+    _output_audio_stream = sd.OutputStream(
+        samplerate=24000,
+        channels=1,
+        dtype="float32",
+        blocksize=1024,
+        callback=_output_audio_callback,
+    )
+    _output_audio_stream.start()
+    print("[AUDIO INIT] Persistent zero-latency output audio stream started")
+except Exception as e:
+    print(f"[AUDIO INIT ERROR] Failed to start output audio stream: {e}")
 
 def clear_playback_queue():
-    global interrupt_requested
-    with _audio_playback_lock:
-        try:
-            sd.stop()
-        except Exception:
-            pass
-    while not playback_queue.empty():
-        try:
-            playback_queue.get_nowait()
-            playback_queue.task_done()
-        except queue.Empty:
-            break
+    global interrupt_requested, _active_playback_chunk, is_audio_playing
+    with _playback_stream_lock:
+        _active_playback_chunk = None
+        while not playback_queue.empty():
+            try:
+                playback_queue.get_nowait()
+                playback_queue.task_done()
+            except queue.Empty:
+                break
+        is_audio_playing = False
 
 class PlayerCompat:
     @property
@@ -1656,7 +1702,8 @@ def main():
                     pre_buffer.append(frame)
 
                 audio_tensor = torch.from_numpy(frame.squeeze())
-                speech_dict = vad_iterator(audio_tensor, return_seconds=True)
+                with vad_lock:
+                    speech_dict = vad_iterator(audio_tensor, return_seconds=True)
 
                 if speech_dict is not None and "start" in speech_dict:
                     is_speaking_now = True
@@ -1667,7 +1714,8 @@ def main():
                     speech_buffer.append(frame)
 
                 if is_speaking_now:
-                    speech_prob = vad_model(audio_tensor, SAMPLE_RATE).item()
+                    with vad_lock:
+                        speech_prob = vad_model(audio_tensor, SAMPLE_RATE).item()
                     if speech_prob < 0.15:
                         silence_frames += 1
                     else:
@@ -1678,7 +1726,8 @@ def main():
                     if silence_frames > SILENCE_LIMIT or len(speech_buffer) >= max_wake_frames:
                         is_speaking_now = False
                         silence_frames = 0
-                        vad_iterator.reset_states()
+                        with vad_lock:
+                            vad_iterator.reset_states()
 
                         if len(speech_buffer) >= MIN_SPEECH_FRAMES:
                             wake_audio = np.concatenate(speech_buffer, axis=0).flatten()
@@ -1756,7 +1805,8 @@ def main():
                     pre_buffer.append(frame)
 
                 audio_tensor = torch.from_numpy(frame.squeeze())
-                speech_dict = vad_iterator(audio_tensor, return_seconds=True)
+                with vad_lock:
+                    speech_dict = vad_iterator(audio_tensor, return_seconds=True)
                 
                 if speech_dict is not None and "start" in speech_dict:
                     is_speaking_now = True
@@ -1769,7 +1819,8 @@ def main():
                     speech_buffer.append(frame)
 
                 if is_speaking_now:
-                    speech_prob = vad_model(audio_tensor, SAMPLE_RATE).item()
+                    with vad_lock:
+                        speech_prob = vad_model(audio_tensor, SAMPLE_RATE).item()
 
                     # Speech probability threshold for silence accumulation
                     if speech_prob < 0.15:
@@ -1780,7 +1831,8 @@ def main():
                     if silence_frames > SILENCE_LIMIT:
                         is_speaking_now = False
                         silence_frames = 0
-                        vad_iterator.reset_states()
+                        with vad_lock:
+                            vad_iterator.reset_states()
                         audio_feedback.play_listening_tick()
                         dashboard_server.set_state("THINKING")
 
