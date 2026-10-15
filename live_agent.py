@@ -672,6 +672,15 @@ async def pointing_ws_handler(websocket):
 def start_pointing_server():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+
+    def _silence_winerror_10054(loop, context):
+        exc = context.get("exception")
+        if isinstance(exc, (ConnectionResetError, ConnectionAbortedError)):
+            return
+        loop.default_exception_handler(context)
+
+    loop.set_exception_handler(_silence_winerror_10054)
+
     async def _serve():
         async with websockets.serve(pointing_ws_handler, "127.0.0.1", 8765):
             print("[FOFC POINTING BRIDGE] WebSocket server online at ws://127.0.0.1:8765")
@@ -963,6 +972,8 @@ PHONETIC_REPLACEMENTS = {
 }
 
 def _normalize_speech_text(text: str) -> str:
+    # Replace unicode quotes and apostrophes with ASCII equivalents
+    text = text.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
     # Remove markdown formatting and harsh dashes.
     text = re.sub(r'[*_#`~—–-]', ' ', text)
     return ' '.join(text.split())
