@@ -125,7 +125,7 @@ export class ZoneManager {
     this.currentDragRect = null;
     this.polygonPoints = [];
     this.currentMousePos = null;
-    this.dwellDurationMs = 600; // 600ms dwell default to filter transient hand sweeps
+    this.dwellDurationMs = 500; // 500ms default pointing dwell
 
     // Caching viewport dimensions for zero-allocation screen point sync
     this._cachedW = 0;

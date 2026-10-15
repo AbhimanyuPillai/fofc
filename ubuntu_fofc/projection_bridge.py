@@ -99,7 +99,7 @@ def set_selection_callback(callback) -> None:
 
 
 def _dispatch_projection_selection(state: Dict[str, Any], event_type: str) -> None:
-    """Resolve and forward a valid product selection without echoing it back."""
+    """Forward a valid product selection without waiting on the HTTP catalog."""
     raw_product_id = state.get("productId")
     if (raw_product_id is None or isinstance(raw_product_id, bool) or
             (isinstance(raw_product_id, float) and not raw_product_id.is_integer())):
@@ -109,23 +109,17 @@ def _dispatch_projection_selection(state: Dict[str, Any], event_type: str) -> No
     except (TypeError, ValueError):
         return
 
-    product = get_product(product_id)
-    if not product:
-        refresh_product_catalog()
-        product = get_product(product_id)
-    if not product:
-        print(f"[PROJECTION SYNC] Ignoring unknown product ID {product_id} from {event_type}")
-        return
-
     with _selection_callback_lock:
         callback = _selection_callback
     if callback is None:
+        print(f"[PROJECTION SYNC] Received product ID {product_id}, but no agent callback is registered")
         return
     try:
-        if callback(product_id):
+        product_name = state.get("productName")
+        if callback(product_id, product_name):
             print(
-                f"[PROJECTION SYNC] Active board updated from carousel: "
-                f"{product.get('name', f'Product {product_id}')} (product ID {product_id})"
+                f"[PROJECTION SYNC] Active board updated from {event_type}: "
+                f"{product_name or f'Product {product_id}'} (product ID {product_id})"
             )
     except Exception as exc:
         print(f"[PROJECTION SYNC] Could not apply product ID {product_id}: {exc}")
