@@ -10,6 +10,7 @@ import threading
 import subprocess
 import collections
 import asyncio
+import random
 from math import gcd
 import websockets
 import requests
@@ -310,12 +311,17 @@ is_audio_playing = False
 
 is_agent_speaking = False
 interrupt_requested = False
+_speech_generation = 0
+_speech_generation_lock = threading.RLock()
+_active_brain_response = None
 
 # ==========================================
 # AEROFINGER POINTING WEBSOCKET BRIDGE
 # ==========================================
 current_pointed_board = None
 current_pointed_product_id = None
+_last_pointed_product_id = None
+_last_pointed_board_name = None
 pointed_board_lock = threading.Lock()
 audio_stream_lock = threading.Lock()
 active_audio_stream = None
@@ -374,17 +380,20 @@ def latch_hardware_product(product_id: int, source: str, send_to_projection: boo
     return True
 
 
-def on_projection_product_selected(product_id: int) -> bool:
+def on_projection_product_selected(product_id: int, product_name: Optional[str] = None) -> bool:
     """Mirror carousel selection into agent context without sending it back."""
+    global current_pointed_board, current_pointed_product_id
+    product = projection_bridge.get_product(product_id)
+    name = str(product_name or (product or {}).get("name") or f"Product {product_id}").strip()
     with pointed_board_lock:
         if current_pointed_product_id == int(product_id):
             return False
-    applied = latch_hardware_product(
-        int(product_id), "projection carousel", send_to_projection=False
-    )
-    if not applied:
-        print(f"[PROJECTION SYNC] Could not load product ID {product_id} into agent context")
-    return applied
+        current_pointed_board = name
+        current_pointed_product_id = int(product_id)
+    print(f"[HARDWARE] Selected active board from projection carousel: {name} (product ID {product_id})")
+    if "dashboard_server" in globals() and hasattr(dashboard_server, "set_hardware_focus"):
+        dashboard_server.set_hardware_focus(name, product_id=int(product_id))
+    return True
 
 
 def handle_video_request(text: str, source: str) -> Optional[str]:
@@ -576,6 +585,7 @@ def switch_audio_device(device_name: str = "", device_id: str = "", device_index
                 **identity, "message": message}
 
 async def pointing_ws_handler(websocket):
+    global current_pointed_board, current_pointed_product_id, _last_pointed_product_id, _last_pointed_board_name
     try:
         async for message in websocket:
             try:
@@ -589,16 +599,33 @@ async def pointing_ws_handler(websocket):
                     product = projection_bridge.get_product(product_id)
                     new_board = (product or {}).get("name") or data.get("board")
                     if product_id is not None and product:
-                        latch_hardware_product(product_id, "pointing")
+                        with pointed_board_lock:
+                            is_new_point = _last_pointed_product_id != product_id
+                            _last_pointed_product_id = product_id
+                            _last_pointed_board_name = None
+                            needs_latch = current_pointed_product_id != product_id
+                        if is_new_point and needs_latch:
+                            latch_hardware_product(product_id, "pointing")
+                        if is_new_point:
+                            announce_pointed_board(str(product.get("name") or new_board), product_id)
                     elif new_board is not None and str(new_board).strip():
                         board_str = str(new_board).strip()
                         with pointed_board_lock:
+                            is_new_selection = _last_pointed_board_name != board_str
+                            _last_pointed_product_id = None
+                            _last_pointed_board_name = board_str
                             current_pointed_board = board_str
                             current_pointed_product_id = None
                         id_suffix = " (no product ID)"
                         print(f"[HARDWARE] Latched active board to: {board_str}{id_suffix}")
                         if "dashboard_server" in globals() and hasattr(dashboard_server, "set_hardware_focus"):
                             dashboard_server.set_hardware_focus(board_str)
+                        if is_new_selection:
+                            announce_pointed_board(board_str, None)
+                    else:
+                        with pointed_board_lock:
+                            _last_pointed_product_id = None
+                            _last_pointed_board_name = None
                     # When board is None (hand pulled back), DO NOT reset; preserve latched state
                 elif data.get("event") == "set_audio_device" or data.get("type") == "SET_AUDIO_DEVICE":
                     dev_id = data.get("device_id", "")
@@ -799,14 +826,19 @@ def audio_player_worker():
             if not interrupt_requested:
                 is_audio_playing = True
                 if isinstance(chunk, tuple):
-                    audio_data, sr = chunk
+                    audio_data, sr = chunk[:2]
+                    generation = chunk[2] if len(chunk) > 2 else None
                 else:
                     audio_data, sr = chunk, 24000
+                    generation = None
                 if isinstance(audio_data, torch.Tensor):
                     audio_data = audio_data.detach().cpu().numpy()
                 audio_arr = np.ascontiguousarray(audio_data, dtype=np.float32).squeeze()
                 if audio_arr.size > 0:
-                    sd.play(audio_arr, samplerate=sr)
+                    with _speech_generation_lock:
+                        if generation is not None and generation != _speech_generation:
+                            continue
+                        sd.play(audio_arr, samplerate=sr)
                     sd.wait()
         except Exception as e:
             print(f"[AUDIO PLAYBACK ERROR]: {e}")
@@ -866,18 +898,63 @@ def clean_spoken_text(text: str) -> str:
 clean_text_for_tts = clean_spoken_text
 clean_display_text = _normalize_speech_text
 
-def synthesize_and_queue(sentence: str):
+def current_speech_generation() -> int:
+    with _speech_generation_lock:
+        return _speech_generation
+
+def speech_generation_is_current(generation: int) -> bool:
+    return generation == current_speech_generation()
+
+def cancel_speech_for_board_change() -> tuple[int, bool]:
+    global _speech_generation, _active_brain_response
+    was_speaking = is_agent_speaking or is_audio_playing or not playback_queue.empty()
+    with _speech_generation_lock:
+        _speech_generation += 1
+        generation = _speech_generation
+        response = _active_brain_response
+        _active_brain_response = None
+    if response is not None:
+        try:
+            response.close()
+        except Exception:
+            pass
+    clear_all_queues()
+    return generation, was_speaking
+
+def announce_pointed_board(board_name: str, product_id: Optional[int]):
+    generation, was_speaking = cancel_speech_for_board_change()
+    templates = (
+        ("Oh, I see, you've switched to {board}. What would you like to know?",
+         "Got it, we're looking at {board} now. What would you like to know?",
+         "Okay, switching focus to {board}. What can I tell you about it?")
+        if was_speaking else
+        ("That's {board}. What would you like to know about it?",
+         "You're pointing at {board}. What would you like to know?",
+         "Got it, {board}. What can I tell you about it?")
+    )
+    text = random.choice(templates).format(board=board_name)
+    def _speak_selection():
+        while speech_generation_is_current(generation) and (
+            is_agent_speaking or is_audio_playing or not playback_queue.empty()
+        ):
+            time.sleep(0.03)
+        if speech_generation_is_current(generation):
+            speak_direct(text, speech_generation=generation)
+    threading.Thread(target=_speak_selection, daemon=True, name="PointingBoardAnnouncement").start()
+
+def synthesize_and_queue(sentence: str, generation: Optional[int] = None):
     global interrupt_requested
+    generation = current_speech_generation() if generation is None else generation
     clean_sent = clean_text_for_tts(apply_active_user_pronunciation(sentence))
-    if not clean_sent or interrupt_requested:
+    if not clean_sent or interrupt_requested or not speech_generation_is_current(generation):
         return
     try:
         samples, sr = kokoro.create(clean_sent, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
-        if not interrupt_requested and samples is not None and len(samples) > 0:
+        if not interrupt_requested and speech_generation_is_current(generation) and samples is not None and len(samples) > 0:
             # Pad 250ms of trailing silence to protect final phonemes from buffer clipping
             pad_samples = int(0.25 * sr)
             samples = np.pad(samples, (0, pad_samples), mode='constant')
-            playback_queue.put((samples, sr))
+            playback_queue.put((samples, sr, generation))
     except Exception as e:
         print(f"[SYNTH ERROR]: {e}")
 
@@ -916,8 +993,9 @@ def clear_all_queues():
         except queue.Empty:
             break
 
-def speak_direct(text: str, spoken_text: Optional[str] = None):
+def speak_direct(text: str, spoken_text: Optional[str] = None, speech_generation: Optional[int] = None):
     global is_agent_speaking, interrupt_requested
+    generation = current_speech_generation() if speech_generation is None else speech_generation
     reset_barge_in_capture()
     is_agent_speaking = True
     clean_text = clean_display_text(text)
@@ -928,12 +1006,12 @@ def speak_direct(text: str, spoken_text: Optional[str] = None):
     dashboard_server.broadcast_transcript("JARVIS", clean_text)
     try:
         samples, sr = kokoro.create(clean_speech_text, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
-        if not interrupt_requested and samples is not None and len(samples) > 0:
+        if not interrupt_requested and speech_generation_is_current(generation) and samples is not None and len(samples) > 0:
             # Pad 250ms of trailing silence to protect final phonemes from buffer clipping
             pad_samples = int(0.25 * sr)
             samples = np.pad(samples, (0, pad_samples), mode='constant')
-            playback_queue.put((samples, sr))
-        while (not playback_queue.empty() or is_audio_playing) and not interrupt_requested:
+            playback_queue.put((samples, sr, generation))
+        while (not playback_queue.empty() or is_audio_playing) and not interrupt_requested and speech_generation_is_current(generation):
             time.sleep(0.02)
     except Exception as e:
         print(f"[TTS DIRECT ERROR]: {e}")
@@ -1210,11 +1288,12 @@ def start_presence_bridge(port: int = 8766):
 
 
 def stream_brain_to_voice(user_text: str):
-    global dialog_turns, is_agent_speaking, interrupt_requested, primary_user, visitor_queue
+    global dialog_turns, is_agent_speaking, interrupt_requested, primary_user, visitor_queue, _active_brain_response
 
     reset_barge_in_capture()
     is_agent_speaking = True
     clear_all_queues()
+    speech_generation = current_speech_generation()
     dashboard_server.set_state("SPEAKING")
 
     primary_name = primary_user.get("display_name", "User") if primary_user else "User"
@@ -1233,6 +1312,7 @@ def stream_brain_to_voice(user_text: str):
 
     collected_tokens = []
     buffer = ""
+    res = None
     # Only split at true sentence ends: . ! ? or two consecutive newlines
     sentence_end_pattern = re.compile(r'((?<![.?!0-9])[.?!]+(?![.?!0-9])(?:\s+|$)|(?:\r?\n){2,})')
 
@@ -1254,9 +1334,14 @@ def stream_brain_to_voice(user_text: str):
             stream=True,
             timeout=(5.0, 35.0)
         )
+        with _speech_generation_lock:
+            if speech_generation == _speech_generation:
+                _active_brain_response = res
+            else:
+                res.close()
 
         for line in res.iter_lines():
-            if interrupt_requested:
+            if interrupt_requested or not speech_generation_is_current(speech_generation):
                 break
 
             if line:
@@ -1275,7 +1360,7 @@ def stream_brain_to_voice(user_text: str):
                         if cand_clean:
                             print(f"\n[AGENT STREAMING]: \"{cand_clean}\"")
                             dashboard_server.broadcast_stream_chunk("JARVIS", cand_clean)
-                            synthesize_and_queue(cand)
+                            synthesize_and_queue(cand, speech_generation)
                             buffer = buffer[pos:].lstrip()
                             found_split = True
                             break
@@ -1283,28 +1368,32 @@ def stream_brain_to_voice(user_text: str):
                         break
 
         # Flush any remaining trailing text in the buffer to Kokoro
-        if buffer.strip() and not interrupt_requested:
+        if buffer.strip() and not interrupt_requested and speech_generation_is_current(speech_generation):
             remaining = clean_display_text(buffer)
             if remaining:
                 print(f"\n[AGENT STREAMING]: \"{remaining}\"")
                 dashboard_server.broadcast_stream_chunk("JARVIS", remaining)
-                synthesize_and_queue(buffer)
+                synthesize_and_queue(buffer, speech_generation)
 
         # Wait for decoupled audio player worker to finish playing all queued chunks
-        while (not playback_queue.empty() or is_audio_playing) and not interrupt_requested:
+        while (not playback_queue.empty() or is_audio_playing) and not interrupt_requested and speech_generation_is_current(speech_generation):
             time.sleep(0.02)
 
         full_text = "".join(collected_tokens).strip()
-        if full_text and not interrupt_requested:
+        if full_text and not interrupt_requested and speech_generation_is_current(speech_generation):
             dialog_turns.append({"role": "user", "content": user_text})
             dialog_turns.append({"role": "assistant", "content": full_text})
             if len(dialog_turns) > 4:
                 dialog_turns = dialog_turns[-4:]
 
     except Exception as e:
-        print(f"[BRAIN ERROR]: {e}")
-        speak_direct("I'm right here with you! Feel free to ask me anything about the boards on the table.")
+        if speech_generation_is_current(speech_generation):
+            print(f"[BRAIN ERROR]: {e}")
+            speak_direct("I'm right here with you! Feel free to ask me anything about the boards on the table.", speech_generation=speech_generation)
     finally:
+        with _speech_generation_lock:
+            if _active_brain_response is res:
+                _active_brain_response = None
         if interrupt_requested:
             clear_all_queues()
         finish_barge_in_capture()
