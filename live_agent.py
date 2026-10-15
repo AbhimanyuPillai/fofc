@@ -48,6 +48,10 @@ os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
 ACTIVE_VOICE = "af_sarah"  # Fallback default anchor voice
 VOICE_SPEED = 1.03         # Natural, relaxed conversational pace
+STREAM_INTER_CHUNK_PAUSE_SECONDS = 0.07
+STREAM_FINAL_PAUSE_SECONDS = 0.18
+STREAM_SENTENCES_PER_CHUNK = 2
+STREAM_SINGLE_SENTENCE_MAX_CHARS = 180
 INSTRUCTIONS_FILE = "agent_instructions.md"
 INACTIVITY_TIMEOUT = 180.0
 
@@ -963,12 +967,39 @@ class PlayerCompat:
 player = PlayerCompat()
 
 PHONETIC_REPLACEMENTS = {
-    r"\bAI\b": "ay eye",
-    r"\bA\.I\.(?!\w)": "ay eye",
-    r"\bA\.I\.\b": "ay eye",
-    r"\bIoT\b": "eye oh tea",
     r"\bRepos\b": "reepoze",
 }
+
+TTS_PRONUNCIATIONS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tts_pronunciations.json")
+
+def load_tts_acronym_pronunciations() -> Dict[str, str]:
+    """Load acronym spellings used only in synthesized speech."""
+    try:
+        with open(TTS_PRONUNCIATIONS_FILE, "r", encoding="utf-8") as pronunciation_file:
+            config = json.load(pronunciation_file)
+        acronyms = config.get("acronyms", {}) if isinstance(config, dict) else {}
+        if not isinstance(acronyms, dict):
+            return {}
+        return {
+            str(acronym).strip(): str(spoken).strip()
+            for acronym, spoken in acronyms.items()
+            if str(acronym).strip() and str(spoken).strip()
+        }
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"[TTS PRONUNCIATION WARNING] Could not load {TTS_PRONUNCIATIONS_FILE}: {exc}")
+        return {}
+
+TTS_ACRONYM_PRONUNCIATIONS = load_tts_acronym_pronunciations()
+
+def apply_tts_acronym_pronunciations(text: str) -> str:
+    """Expand configured initialisms without affecting substrings such as CAM."""
+    for acronym, spoken in sorted(TTS_ACRONYM_PRONUNCIATIONS.items(), key=lambda item: len(item[0]), reverse=True):
+        letters = [character for character in acronym if character.isalpha()]
+        if not letters:
+            continue
+        pattern = r"(?<!\w)" + r"\s*\.?\s*".join(re.escape(letter) for letter in letters) + r"\.?(?!\w)"
+        text = re.sub(pattern, lambda _: spoken, text, flags=re.IGNORECASE)
+    return text
 
 def _normalize_speech_text(text: str) -> str:
     # Replace unicode quotes and apostrophes with ASCII equivalents
@@ -980,6 +1011,7 @@ def _normalize_speech_text(text: str) -> str:
 def clean_spoken_text(text: str) -> str:
     for pattern, replacement in PHONETIC_REPLACEMENTS.items():
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    text = apply_tts_acronym_pronunciations(text)
     return _normalize_speech_text(text)
 
 clean_text_for_tts = clean_spoken_text
@@ -1078,7 +1110,7 @@ def board_announcement_worker():
 
 threading.Thread(target=board_announcement_worker, daemon=True, name="BoardAnnouncementWorker").start()
 
-def synthesize_and_queue(sentence: str, generation: Optional[int] = None):
+def synthesize_and_queue(sentence: str, generation: Optional[int] = None, final_chunk: bool = False):
     global interrupt_requested
     generation = current_speech_generation() if generation is None else generation
     clean_sent = clean_text_for_tts(apply_active_user_pronunciation(sentence))
@@ -1088,8 +1120,9 @@ def synthesize_and_queue(sentence: str, generation: Optional[int] = None):
         with _tts_lock:
             samples, sr = kokoro.create(clean_sent, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
         if not interrupt_requested and speech_generation_is_current(generation) and samples is not None and len(samples) > 0:
-            # Pad 250ms of trailing silence to protect final phonemes from buffer clipping
-            pad_samples = int(0.25 * sr)
+            # Keep a short phrase break without inserting a long pause after every streamed chunk.
+            pause_seconds = STREAM_FINAL_PAUSE_SECONDS if final_chunk else STREAM_INTER_CHUNK_PAUSE_SECONDS
+            pad_samples = int(pause_seconds * sr)
             samples = np.pad(samples, (0, pad_samples), mode='constant')
             playback_queue.put((samples, sr, generation))
     except Exception as e:
@@ -1492,22 +1525,27 @@ def stream_brain_to_voice(user_text: str):
                 buffer += token
                 collected_tokens.append(token)
 
-                # Split ONLY at true sentence boundaries (. ! ? or \n\n) - no comma or intra-clause splitting
+                # Send short replies as complete thoughts; stream longer replies in two-sentence phrases.
                 while True:
-                    found_split = False
-                    for m in sentence_end_pattern.finditer(buffer):
-                        pos = m.end()
-                        cand = buffer[:pos].strip()
-                        cand_clean = clean_display_text(cand)
-                        if cand_clean:
-                            print(f"\n[AGENT STREAMING]: \"{cand_clean}\"")
-                            dashboard_server.broadcast_stream_chunk("JARVIS", cand_clean)
-                            synthesize_and_queue(cand, speech_generation)
-                            buffer = buffer[pos:].lstrip()
-                            found_split = True
-                            break
-                    if not found_split:
+                    boundaries = list(sentence_end_pattern.finditer(buffer))
+                    if not boundaries:
                         break
+                    chunk_boundary_index = STREAM_SENTENCES_PER_CHUNK - 1
+                    if len(boundaries) <= chunk_boundary_index:
+                        first_sentence = buffer[:boundaries[0].end()].strip()
+                        if len(first_sentence) < STREAM_SINGLE_SENTENCE_MAX_CHARS:
+                            break
+                        chunk_boundary_index = 0
+                    boundary = boundaries[chunk_boundary_index]
+                    pos = boundary.end()
+                    cand = buffer[:pos].strip()
+                    cand_clean = clean_display_text(cand)
+                    if not cand_clean:
+                        break
+                    print(f"\n[AGENT STREAMING]: \"{cand_clean}\"")
+                    dashboard_server.broadcast_stream_chunk("JARVIS", cand_clean)
+                    synthesize_and_queue(cand, speech_generation)
+                    buffer = buffer[pos:].lstrip()
 
         # Flush any remaining trailing text in the buffer to Kokoro
         if buffer.strip() and not interrupt_requested and speech_generation_is_current(speech_generation):
@@ -1515,7 +1553,7 @@ def stream_brain_to_voice(user_text: str):
             if remaining:
                 print(f"\n[AGENT STREAMING]: \"{remaining}\"")
                 dashboard_server.broadcast_stream_chunk("JARVIS", remaining)
-                synthesize_and_queue(buffer, speech_generation)
+                synthesize_and_queue(buffer, speech_generation, final_chunk=True)
 
         # Wait for decoupled audio player worker to finish playing all queued chunks
         while (not playback_queue.empty() or is_audio_playing) and not interrupt_requested and speech_generation_is_current(speech_generation):
