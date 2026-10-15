@@ -998,77 +998,86 @@ def speech_generation_is_current(generation: int) -> bool:
 # ==========================================
 # BOARD ANNOUNCEMENT SETTLING & QUEUE ENGINE
 # ==========================================
-_pending_announcement_lock = threading.Lock()
-_pending_board_name: Optional[str] = None
-_pending_product_id: Optional[int] = None
-_pending_is_carousel: bool = False
-_pending_board_start_time: float = 0.0
-_last_announced_board: Optional[str] = None
+_announcement_lock = threading.Lock()
+_active_target_name: Optional[str] = None
+_active_target_start: float = 0.0
+_active_target_is_carousel: bool = False
+_spoken_for_current_target: Optional[str] = None
+_last_target_seen_time: float = 0.0
+
+def update_active_board_target(board_name: Optional[str], product_id: Optional[int] = None, is_carousel: bool = False):
+    """Continuously update the active board target from pointing (per frame) or carousel."""
+    global _active_target_name, _active_target_start, _active_target_is_carousel
+    global _spoken_for_current_target, _last_target_seen_time
+
+    now = time.time()
+    clean_name = str(board_name).strip() if board_name else None
+
+    with _announcement_lock:
+        if clean_name:
+            _last_target_seen_time = now
+            if clean_name != _active_target_name:
+                # Target changed: reset the 0.5s settling timer
+                _active_target_name = clean_name
+                _active_target_start = now
+                _active_target_is_carousel = is_carousel
+                _spoken_for_current_target = None
+        else:
+            # Hand pulled back / no target in this frame
+            # If target has been gone for > 1.0s, allow fresh announcement when returning
+            if _active_target_name is not None and (now - _last_target_seen_time) > 1.0:
+                _active_target_name = None
+                _spoken_for_current_target = None
 
 def queue_board_announcement(board_name: str, product_id: Optional[int] = None, is_carousel: bool = False):
-    """Queue a board for announcement. Must remain as main product for >= 0.5s to be spoken."""
-    global _pending_board_name, _pending_product_id, _pending_is_carousel, _pending_board_start_time
-    clean_name = str(board_name).strip()
-    if not clean_name:
-        return
-    with _pending_announcement_lock:
-        # If this board was already the most recently announced board, don't re-announce
-        if clean_name == _last_announced_board and _pending_board_name is None:
-            return
-        # If the incoming board is already the currently pending candidate, don't reset its timer
-        if _pending_board_name == clean_name:
-            return
-        # A new board candidate has been selected - start the 0.5s settling timer
-        _pending_board_name = clean_name
-        _pending_product_id = product_id
-        _pending_is_carousel = is_carousel
-        _pending_board_start_time = time.time()
+    """Backward compatibility shim."""
+    update_active_board_target(board_name, product_id, is_carousel)
 
 def announce_pointed_board(board_name: str, product_id: Optional[int] = None, projection_selection: bool = False):
-    """Backward compatibility shim forwarding to queue_board_announcement."""
-    queue_board_announcement(board_name, product_id, is_carousel=projection_selection)
+    """Backward compatibility shim."""
+    update_active_board_target(board_name, product_id, is_carousel=projection_selection)
 
 def board_announcement_worker():
     """Background worker that lets current announcements complete fully without interruption,
 
     checks that the pending board has stayed active for >= 0.5s, and announces it.
     """
-    global _pending_board_name, _pending_product_id, _pending_is_carousel
-    global _pending_board_start_time, _last_announced_board
+    global _active_target_name, _active_target_start, _active_target_is_carousel, _spoken_for_current_target
 
     while True:
         time.sleep(0.04)
+        try:
+            # 1. NEVER interrupt active speech: let the current announcement or answer complete fully
+            if is_agent_speaking or is_audio_playing or not playback_queue.empty():
+                continue
 
-        # 1. NEVER interrupt active speech: let the current announcement or answer complete fully
-        if is_agent_speaking or is_audio_playing or not playback_queue.empty():
-            continue
+            target_to_speak = None
+            is_carousel = False
 
-        target_to_announce = None
-        target_carousel = False
+            with _announcement_lock:
+                if _active_target_name is not None:
+                    # Has it stayed active as main product for >= 0.5s?
+                    if (time.time() - _active_target_start) >= 0.5:
+                        if _spoken_for_current_target != _active_target_name:
+                            target_to_speak = _active_target_name
+                            is_carousel = _active_target_is_carousel
+                            _spoken_for_current_target = _active_target_name
 
-        with _pending_announcement_lock:
-            if _pending_board_name is not None:
-                elapsed = time.time() - _pending_board_start_time
-                if elapsed >= 0.5:
-                    # Board stayed active as main product for >= 0.5s!
-                    if _pending_board_name != _last_announced_board:
-                        target_to_announce = _pending_board_name
-                        target_carousel = _pending_is_carousel
-                    _pending_board_name = None
+            if target_to_speak:
+                templates = (
+                    ("This is the {board} board. What would you like to know about it?",
+                     "You're looking at the {board} board. What would you like to know about it?",
+                     "Here's the {board} board. What can I tell you about it?")
+                    if is_carousel else
+                    ("That's {board}. What would you like to know about it?",
+                     "You're pointing at {board}. What would you like to know?",
+                     "Got it, {board}. What can I tell you about it?")
+                )
+                text = random.choice(templates).format(board=target_to_speak)
+                speak_direct(text, allow_interrupt=False)
 
-        if target_to_announce:
-            _last_announced_board = target_to_announce
-            templates = (
-                ("This is the {board} board. What would you like to know about it?",
-                 "You're looking at the {board} board. What would you like to know about it?",
-                 "Here's the {board} board. What can I tell you about it?")
-                if target_carousel else
-                ("That's {board}. What would you like to know about it?",
-                 "You're pointing at {board}. What would you like to know?",
-                 "Got it, {board}. What can I tell you about it?")
-            )
-            text = random.choice(templates).format(board=target_to_announce)
-            speak_direct(text, allow_interrupt=False)
+        except Exception as exc:
+            print(f"[ANNOUNCEMENT WORKER ERROR]: {exc}")
 
 threading.Thread(target=board_announcement_worker, daemon=True, name="BoardAnnouncementWorker").start()
 
