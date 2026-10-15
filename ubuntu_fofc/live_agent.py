@@ -27,6 +27,20 @@ import projection_bridge
 import video_playback_controller
 
 
+# Windows CUDA / DLL directory configuration for ONNX Runtime GPU
+if sys.platform.startswith("win"):
+    torch_lib = os.path.join(sys.prefix, "Lib", "site-packages", "torch", "lib")
+    cudnn_bin = os.path.join(sys.prefix, "Lib", "site-packages", "nvidia", "cudnn", "bin")
+    for dll_dir in [torch_lib, cudnn_bin]:
+        if os.path.exists(dll_dir):
+            if dll_dir not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = dll_dir + os.pathsep + os.environ.get("PATH", "")
+            if hasattr(os, "add_dll_directory"):
+                try:
+                    os.add_dll_directory(dll_dir)
+                except Exception:
+                    pass
+
 import onnxruntime as ort
 from kokoro_onnx import Kokoro
 
@@ -83,7 +97,7 @@ def _mic_device_records():
 
 
 def get_default_mic_candidates():
-    """Prefer the active desktop audio backend, then the OS's global default."""
+    """Prefer the OS's active desktop audio backend, then its global default."""
     try:
         records, host_apis = _mic_device_records()
         by_index = {record["index"]: record for record in records}
@@ -91,10 +105,6 @@ def get_default_mic_candidates():
         preferred_api_indexes = [i for i, api in enumerate(host_apis)
                                  if any(term in str(api.get("name", "")).lower() for term in preferred_terms)]
         candidates = []
-        preferred_name = os.environ.get("JARVIS_MIC_DEVICE_NAME", "").strip().casefold()
-        if preferred_name:
-            candidates.extend(record["index"] for record in records
-                              if preferred_name in record["name"].casefold())
         for api_index in preferred_api_indexes:
             default_index = host_apis[api_index].get("default_input_device", -1)
             try:
@@ -124,6 +134,11 @@ def get_default_mic_index() -> Optional[int]:
         except Exception:
             continue
     return None
+
+
+def get_realtek_mic_index() -> Optional[int]:
+    """Compatibility wrapper; choose a current default input instead of a hard-coded index."""
+    return get_default_mic_index()
 
 # ==========================================
 # AUTO-START OLLAMA SERVICE
@@ -281,6 +296,7 @@ def get_natural_voice(kokoro_engine):
 
 CUSTOM_VOICE = get_natural_voice(kokoro)
 ACTIVE_VOICE = CUSTOM_VOICE
+_tts_lock = threading.Lock()
 
 def synthesize_wav_bytes(text: str) -> bytes:
     """Synthesizes given text with Kokoro TTS and returns in-memory WAV bytes."""
@@ -288,7 +304,8 @@ def synthesize_wav_bytes(text: str) -> bytes:
         clean = clean_text_for_tts(text) if "clean_text_for_tts" in globals() else text
         if not clean:
             clean = text
-        samples, sr = kokoro.create(clean, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
+        with _tts_lock:
+            samples, sr = kokoro.create(clean, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
         if samples is None or len(samples) == 0:
             return b""
         audio_int16 = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
@@ -314,6 +331,10 @@ interrupt_requested = False
 _speech_generation = 0
 _speech_generation_lock = threading.RLock()
 _active_brain_response = None
+_audio_playback_lock = threading.Lock()
+_last_announced_board = None
+_last_announcement_time = 0.0
+_announcement_lock = threading.Lock()
 
 # ==========================================
 # AEROFINGER POINTING WEBSOCKET BRIDGE
@@ -448,13 +469,14 @@ def save_device_config(cfg: dict):
 
 def resolve_mic_candidates(device_name: str = "", host_api_name: str = "", device_index=None,
                            include_defaults: bool = True):
-    """Resolve a volatile PortAudio index from the current device identity."""
+    """Resolve an ephemeral PortAudio index from the current device identity."""
     try:
         records, _ = _mic_device_records()
         by_index = {record["index"]: record for record in records}
         clean_name = str(device_name or "").strip().casefold()
         clean_api = str(host_api_name or "").strip().casefold()
         candidates = []
+
         try:
             hinted = by_index.get(int(device_index)) if device_index is not None else None
         except (TypeError, ValueError):
@@ -485,6 +507,7 @@ def resolve_mic_candidates(device_name: str = "", host_api_name: str = "", devic
 
 
 def get_mic_identity(device_index=None):
+    """Describe a current PortAudio input; use cached identity if its index went stale."""
     global capture_device_name, capture_device_host_api
     index = device_index if device_index is not None else capture_device
     try:
@@ -623,10 +646,9 @@ async def pointing_ws_handler(websocket):
                         if is_new_selection:
                             announce_pointed_board(board_str, None)
                     else:
-                        with pointed_board_lock:
-                            _last_pointed_product_id = None
-                            _last_pointed_board_name = None
-                    # When board is None (hand pulled back), DO NOT reset; preserve latched state
+                        # Hand pulled back or no target in this frame:
+                        # Preserve latched state and avoid immediate reset to prevent 1-frame tracking jitter
+                        pass
                 elif data.get("event") == "set_audio_device" or data.get("type") == "SET_AUDIO_DEVICE":
                     dev_id = data.get("device_id", "")
                     dev_name = data.get("device_name", "")
@@ -674,6 +696,11 @@ vad_iterator = None
 # Barge-in is deliberately stricter than ordinary speech detection: the voice
 # must be clear, loud relative to the learned room floor, and sustained.
 interrupt_evidence = collections.deque(maxlen=10)
+barge_in_preroll = collections.deque(maxlen=10)
+barge_in_capture_frames = []
+barge_in_capture_active = False
+barge_in_silence_frames = 0
+barge_in_capture_done = threading.Event()
 interrupt_noise_floor_rms = 0.003
 INTERRUPT_MIN_TOTAL_RMS = 0.025
 INTERRUPT_MIN_VOCAL_RMS = 0.015
@@ -681,6 +708,8 @@ INTERRUPT_NOISE_FLOOR_MULTIPLIER = 2.5
 INTERRUPT_VAD_THRESHOLD = 0.70
 INTERRUPT_REQUIRED_FRAMES = 6  # 6 of 10 frames, about 320 ms at 16 kHz.
 NOISE_FLOOR_MAX_RMS = 0.025
+BARGE_IN_SILENCE_FRAMES = int(0.70 * SAMPLE_RATE / CHUNK_SIZE)
+BARGE_IN_MAX_FRAMES = int(10 * SAMPLE_RATE / CHUNK_SIZE)
 
 def measure_vocal_energy(indata: np.ndarray) -> tuple[float, float]:
     """Return broadband and speech-band RMS for one normalized audio frame."""
@@ -688,15 +717,6 @@ def measure_vocal_energy(indata: np.ndarray) -> tuple[float, float]:
     filtered_audio = sosfilt(SOS_BANDPASS, flat)
     return (float(np.sqrt(np.mean(flat**2))),
             float(np.sqrt(np.mean(filtered_audio**2))))
-
-
-barge_in_preroll = collections.deque(maxlen=10)
-barge_in_capture_frames = []
-barge_in_capture_active = False
-barge_in_silence_frames = 0
-barge_in_capture_done = threading.Event()
-BARGE_IN_SILENCE_FRAMES = int(0.70 * SAMPLE_RATE / CHUNK_SIZE)
-BARGE_IN_MAX_FRAMES = int(10 * SAMPLE_RATE / CHUNK_SIZE)
 
 
 def reset_barge_in_capture():
@@ -712,7 +732,7 @@ def reset_barge_in_capture():
 
 
 def finish_barge_in_capture(timeout: float = 10.5):
-    """Queue only captured interruption speech for the normal ASR loop."""
+    """Queue only the captured interruption speech for the normal ASR loop."""
     global barge_in_capture_frames, barge_in_capture_active, barge_in_silence_frames
     if not interrupt_requested:
         while not audio_queue.empty():
@@ -732,6 +752,9 @@ def finish_barge_in_capture(timeout: float = 10.5):
     barge_in_silence_frames = 0
     barge_in_preroll.clear()
     interrupt_evidence.clear()
+
+    # Discard mic audio recorded while the agent was speaking, then hand only
+    # the interruption utterance to the existing transcription pipeline.
     while not audio_queue.empty():
         try:
             audio_queue.get_nowait()
@@ -750,6 +773,7 @@ def audio_callback(indata, frames, time_info, status, input_sample_rate=SAMPLE_R
         divisor = gcd(int(input_sample_rate), SAMPLE_RATE)
         audio_frame = resample_poly(audio_frame, SAMPLE_RATE // divisor,
                                     input_sample_rate // divisor, axis=0)
+    # Silero/VAD processing expects consistent 512-sample, 16 kHz frames.
     if len(audio_frame) > CHUNK_SIZE:
         audio_frame = audio_frame[:CHUNK_SIZE]
     elif len(audio_frame) < CHUNK_SIZE:
@@ -838,8 +862,14 @@ def audio_player_worker():
                     with _speech_generation_lock:
                         if generation is not None and generation != _speech_generation:
                             continue
+                        if interrupt_requested:
+                            continue
+                    with _audio_playback_lock:
                         sd.play(audio_arr, samplerate=sr)
-                    sd.wait()
+                    try:
+                        sd.wait()
+                    except Exception:
+                        pass
         except Exception as e:
             print(f"[AUDIO PLAYBACK ERROR]: {e}")
         finally:
@@ -850,10 +880,11 @@ threading.Thread(target=audio_player_worker, daemon=True, name="AudioPlayerWorke
 
 def clear_playback_queue():
     global interrupt_requested
-    try:
-        sd.stop()
-    except Exception:
-        pass
+    with _audio_playback_lock:
+        try:
+            sd.stop()
+        except Exception:
+            pass
     while not playback_queue.empty():
         try:
             playback_queue.get_nowait()
@@ -922,6 +953,18 @@ def cancel_speech_for_board_change() -> tuple[int, bool]:
     return generation, was_speaking
 
 def announce_pointed_board(board_name: str, product_id: Optional[int]):
+    global _last_announced_board, _last_announcement_time
+    now = time.time()
+    with _announcement_lock:
+        # If pointing at the same board, require at least 2.5s cooldown before re-announcing
+        if board_name == _last_announced_board and (now - _last_announcement_time) < 2.5:
+            return
+        # If moving between boards, require a short 0.6s stabilization window
+        if (now - _last_announcement_time) < 0.6:
+            return
+        _last_announced_board = board_name
+        _last_announcement_time = now
+
     generation, was_speaking = cancel_speech_for_board_change()
     templates = (
         ("Oh, I see, you've switched to {board}. What would you like to know?",
@@ -949,7 +992,8 @@ def synthesize_and_queue(sentence: str, generation: Optional[int] = None):
     if not clean_sent or interrupt_requested or not speech_generation_is_current(generation):
         return
     try:
-        samples, sr = kokoro.create(clean_sent, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
+        with _tts_lock:
+            samples, sr = kokoro.create(clean_sent, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
         if not interrupt_requested and speech_generation_is_current(generation) and samples is not None and len(samples) > 0:
             # Pad 250ms of trailing silence to protect final phonemes from buffer clipping
             pad_samples = int(0.25 * sr)
@@ -1005,7 +1049,8 @@ def speak_direct(text: str, spoken_text: Optional[str] = None, speech_generation
     dashboard_server.set_state("SPEAKING")
     dashboard_server.broadcast_transcript("JARVIS", clean_text)
     try:
-        samples, sr = kokoro.create(clean_speech_text, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
+        with _tts_lock:
+            samples, sr = kokoro.create(clean_speech_text, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
         if not interrupt_requested and speech_generation_is_current(generation) and samples is not None and len(samples) > 0:
             # Pad 250ms of trailing silence to protect final phonemes from buffer clipping
             pad_samples = int(0.25 * sr)
@@ -1019,7 +1064,8 @@ def speak_direct(text: str, spoken_text: Optional[str] = None, speech_generation
         if interrupt_requested:
             clear_playback_queue()
         finish_barge_in_capture()
-        is_agent_speaking = False
+        if speech_generation_is_current(generation):
+            is_agent_speaking = False
         time.sleep(0.1)
 
 # ==========================================
@@ -1397,8 +1443,9 @@ def stream_brain_to_voice(user_text: str):
         if interrupt_requested:
             clear_all_queues()
         finish_barge_in_capture()
-        is_agent_speaking = False
-        dashboard_server.set_state("ACTIVE")
+        if speech_generation_is_current(speech_generation):
+            is_agent_speaking = False
+            dashboard_server.set_state("ACTIVE")
         time.sleep(0.15)
 
 def main():
@@ -1410,6 +1457,17 @@ def main():
 
 
     try:
+        try:
+            import subprocess
+            out = subprocess.check_output("netstat -ano | findstr :8088", shell=True).decode(errors="ignore")
+            for line in out.strip().splitlines():
+                parts = line.split()
+                if len(parts) >= 5 and ":8088" in parts[1]:
+                    pid = parts[-1]
+                    if pid.isdigit() and int(pid) != 0 and int(pid) != os.getpid():
+                        subprocess.run(f"taskkill /F /PID {pid}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
         dashboard_server.start_dashboard_server(port=8088)
     except Exception as e:
         print(f"[DASHBOARD SERVER NOTICE] Port 8088 managed externally: {e}")
@@ -1423,7 +1481,7 @@ def main():
     print("  • Speech-to-Text: Faster-Whisper small.en (CUDA FP16)")
     print("  • Vision Presence Gating: YuNet + SFace (Port 8080 <-> 8766)")
     print("  • AeroFinger Pointing Bridge: WebSocket (Port 8765)")
-    mic_idx = get_default_mic_index()
+    mic_idx = get_realtek_mic_index()
     if mic_idx is not None:
         try:
             mic_info = sd.query_devices(mic_idx)
@@ -1533,9 +1591,11 @@ def main():
                     is_speaking_now = False
                     silence_frames = 0
                     print("\n[STATUS: SLEEPING] Listening for 'Hey Repos' or typed text...\n")
+                if video_playback_controller.video_controller.handle_if_active(typed_msg, speak_direct):
                     continue
 
                 state = "ACTIVE"
+
                 dashboard_server.set_state("THINKING")
                 dashboard_server.broadcast_transcript("YOU", typed_msg)
                 video_guidance = handle_video_request(typed_msg, "typed video request")

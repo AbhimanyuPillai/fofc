@@ -296,6 +296,7 @@ def get_natural_voice(kokoro_engine):
 
 CUSTOM_VOICE = get_natural_voice(kokoro)
 ACTIVE_VOICE = CUSTOM_VOICE
+_tts_lock = threading.Lock()
 
 def synthesize_wav_bytes(text: str) -> bytes:
     """Synthesizes given text with Kokoro TTS and returns in-memory WAV bytes."""
@@ -303,7 +304,8 @@ def synthesize_wav_bytes(text: str) -> bytes:
         clean = clean_text_for_tts(text) if "clean_text_for_tts" in globals() else text
         if not clean:
             clean = text
-        samples, sr = kokoro.create(clean, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
+        with _tts_lock:
+            samples, sr = kokoro.create(clean, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
         if samples is None or len(samples) == 0:
             return b""
         audio_int16 = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
@@ -329,6 +331,10 @@ interrupt_requested = False
 _speech_generation = 0
 _speech_generation_lock = threading.RLock()
 _active_brain_response = None
+_audio_playback_lock = threading.Lock()
+_last_announced_board = None
+_last_announcement_time = 0.0
+_announcement_lock = threading.Lock()
 
 # ==========================================
 # AEROFINGER POINTING WEBSOCKET BRIDGE
@@ -640,10 +646,9 @@ async def pointing_ws_handler(websocket):
                         if is_new_selection:
                             announce_pointed_board(board_str, None)
                     else:
-                        with pointed_board_lock:
-                            _last_pointed_product_id = None
-                            _last_pointed_board_name = None
-                    # When board is None (hand pulled back), DO NOT reset; preserve latched state
+                        # Hand pulled back or no target in this frame:
+                        # Preserve latched state and avoid immediate reset to prevent 1-frame tracking jitter
+                        pass
                 elif data.get("event") == "set_audio_device" or data.get("type") == "SET_AUDIO_DEVICE":
                     dev_id = data.get("device_id", "")
                     dev_name = data.get("device_name", "")
@@ -857,8 +862,14 @@ def audio_player_worker():
                     with _speech_generation_lock:
                         if generation is not None and generation != _speech_generation:
                             continue
+                        if interrupt_requested:
+                            continue
+                    with _audio_playback_lock:
                         sd.play(audio_arr, samplerate=sr)
-                    sd.wait()
+                    try:
+                        sd.wait()
+                    except Exception:
+                        pass
         except Exception as e:
             print(f"[AUDIO PLAYBACK ERROR]: {e}")
         finally:
@@ -869,10 +880,11 @@ threading.Thread(target=audio_player_worker, daemon=True, name="AudioPlayerWorke
 
 def clear_playback_queue():
     global interrupt_requested
-    try:
-        sd.stop()
-    except Exception:
-        pass
+    with _audio_playback_lock:
+        try:
+            sd.stop()
+        except Exception:
+            pass
     while not playback_queue.empty():
         try:
             playback_queue.get_nowait()
@@ -941,6 +953,18 @@ def cancel_speech_for_board_change() -> tuple[int, bool]:
     return generation, was_speaking
 
 def announce_pointed_board(board_name: str, product_id: Optional[int]):
+    global _last_announced_board, _last_announcement_time
+    now = time.time()
+    with _announcement_lock:
+        # If pointing at the same board, require at least 2.5s cooldown before re-announcing
+        if board_name == _last_announced_board and (now - _last_announcement_time) < 2.5:
+            return
+        # If moving between boards, require a short 0.6s stabilization window
+        if (now - _last_announcement_time) < 0.6:
+            return
+        _last_announced_board = board_name
+        _last_announcement_time = now
+
     generation, was_speaking = cancel_speech_for_board_change()
     templates = (
         ("Oh, I see, you've switched to {board}. What would you like to know?",
@@ -968,7 +992,8 @@ def synthesize_and_queue(sentence: str, generation: Optional[int] = None):
     if not clean_sent or interrupt_requested or not speech_generation_is_current(generation):
         return
     try:
-        samples, sr = kokoro.create(clean_sent, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
+        with _tts_lock:
+            samples, sr = kokoro.create(clean_sent, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
         if not interrupt_requested and speech_generation_is_current(generation) and samples is not None and len(samples) > 0:
             # Pad 250ms of trailing silence to protect final phonemes from buffer clipping
             pad_samples = int(0.25 * sr)
@@ -1024,7 +1049,8 @@ def speak_direct(text: str, spoken_text: Optional[str] = None, speech_generation
     dashboard_server.set_state("SPEAKING")
     dashboard_server.broadcast_transcript("JARVIS", clean_text)
     try:
-        samples, sr = kokoro.create(clean_speech_text, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
+        with _tts_lock:
+            samples, sr = kokoro.create(clean_speech_text, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
         if not interrupt_requested and speech_generation_is_current(generation) and samples is not None and len(samples) > 0:
             # Pad 250ms of trailing silence to protect final phonemes from buffer clipping
             pad_samples = int(0.25 * sr)
@@ -1038,7 +1064,8 @@ def speak_direct(text: str, spoken_text: Optional[str] = None, speech_generation
         if interrupt_requested:
             clear_playback_queue()
         finish_barge_in_capture()
-        is_agent_speaking = False
+        if speech_generation_is_current(generation):
+            is_agent_speaking = False
         time.sleep(0.1)
 
 # ==========================================
@@ -1416,8 +1443,9 @@ def stream_brain_to_voice(user_text: str):
         if interrupt_requested:
             clear_all_queues()
         finish_barge_in_capture()
-        is_agent_speaking = False
-        dashboard_server.set_state("ACTIVE")
+        if speech_generation_is_current(speech_generation):
+            is_agent_speaking = False
+            dashboard_server.set_state("ACTIVE")
         time.sleep(0.15)
 
 def main():
