@@ -415,6 +415,7 @@ def on_projection_product_selected(product_id: int, product_name: Optional[str] 
     print(f"[HARDWARE] Selected active board from projection carousel: {name} (product ID {product_id})")
     if "dashboard_server" in globals() and hasattr(dashboard_server, "set_hardware_focus"):
         dashboard_server.set_hardware_focus(name, product_id=int(product_id))
+    announce_pointed_board(name, int(product_id), projection_selection=True)
     return True
 
 
@@ -1009,29 +1010,40 @@ def cancel_speech_for_board_change() -> tuple[int, bool]:
     clear_all_queues()
     return generation, was_speaking
 
-def announce_pointed_board(board_name: str, product_id: Optional[int]):
+def announce_pointed_board(board_name: str, product_id: Optional[int], projection_selection: bool = False):
     global _last_announced_board, _last_announcement_time
     now = time.time()
     with _announcement_lock:
         # If pointing at the same board, require at least 2.5s cooldown before re-announcing
-        if board_name == _last_announced_board and (now - _last_announcement_time) < 2.5:
+        if not projection_selection and board_name == _last_announced_board and (now - _last_announcement_time) < 2.5:
             return
         # If moving between boards, require a short 0.6s stabilization window
-        if (now - _last_announcement_time) < 0.6:
+        if not projection_selection and (now - _last_announcement_time) < 0.6:
             return
         _last_announced_board = board_name
         _last_announcement_time = now
 
     generation, was_speaking = cancel_speech_for_board_change()
-    templates = (
-        ("Oh, I see, you've switched to {board}. What would you like to know?",
-         "Got it, we're looking at {board} now. What would you like to know?",
-         "Okay, switching focus to {board}. What can I tell you about it?")
-        if was_speaking else
-        ("That's {board}. What would you like to know about it?",
-         "You're pointing at {board}. What would you like to know?",
-         "Got it, {board}. What can I tell you about it?")
-    )
+    if projection_selection:
+        templates = (
+            ("Oh, I see, you've switched to the {board} board. What would you like to know about it?",
+             "Got it, we're looking at the {board} board now. What would you like to know about it?",
+             "Okay, switching focus to the {board} board. What can I tell you about it?")
+            if was_speaking else
+            ("This is the {board} board. What would you like to know about it?",
+             "You're looking at the {board} board. What would you like to know about it?",
+             "Here's the {board} board. What can I tell you about it?")
+        )
+    else:
+        templates = (
+            ("Oh, I see, you've switched to {board}. What would you like to know?",
+             "Got it, we're looking at {board} now. What would you like to know?",
+             "Okay, switching focus to {board}. What can I tell you about it?")
+            if was_speaking else
+            ("That's {board}. What would you like to know about it?",
+             "You're pointing at {board}. What would you like to know?",
+             "Got it, {board}. What can I tell you about it?")
+        )
     text = random.choice(templates).format(board=board_name)
     def _speak_selection():
         while speech_generation_is_current(generation) and (
