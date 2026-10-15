@@ -415,7 +415,7 @@ def on_projection_product_selected(product_id: int, product_name: Optional[str] 
     print(f"[HARDWARE] Selected active board from projection carousel: {name} (product ID {product_id})")
     if "dashboard_server" in globals() and hasattr(dashboard_server, "set_hardware_focus"):
         dashboard_server.set_hardware_focus(name, product_id=int(product_id))
-    announce_pointed_board(name, int(product_id), projection_selection=True)
+    queue_board_announcement(name, int(product_id), is_carousel=True)
     return True
 
 
@@ -632,7 +632,7 @@ async def pointing_ws_handler(websocket):
                         if is_new_point and needs_latch:
                             latch_hardware_product(product_id, "pointing")
                         if is_new_point:
-                            announce_pointed_board(str(product.get("name") or new_board), product_id)
+                            queue_board_announcement(str(product.get("name") or new_board), product_id, is_carousel=False)
                     elif new_board is not None and str(new_board).strip():
                         board_str = str(new_board).strip()
                         with pointed_board_lock:
@@ -646,7 +646,7 @@ async def pointing_ws_handler(websocket):
                         if "dashboard_server" in globals() and hasattr(dashboard_server, "set_hardware_focus"):
                             dashboard_server.set_hardware_focus(board_str)
                         if is_new_selection:
-                            announce_pointed_board(board_str, None)
+                            queue_board_announcement(board_str, None, is_carousel=False)
                     else:
                         # Hand pulled back or no target in this frame:
                         # Preserve latched state and avoid immediate reset to prevent 1-frame tracking jitter
@@ -744,7 +744,7 @@ def reset_barge_in_capture():
 
 def finish_barge_in_capture(timeout: float = 10.5):
     """Queue only the captured interruption speech for the normal ASR loop."""
-    global barge_in_capture_frames, barge_in_capture_active, barge_in_silence_frames
+    global barge_in_capture_frames, barge_in_capture_active, barge_in_silence_frames, interrupt_requested
     if not interrupt_requested:
         while not audio_queue.empty():
             try:
@@ -774,6 +774,7 @@ def finish_barge_in_capture(timeout: float = 10.5):
     for captured_frame in captured:
         audio_queue.put(captured_frame)
     barge_in_capture_done.clear()
+    interrupt_requested = False
 
 def audio_callback(indata, frames, time_info, status, input_sample_rate=SAMPLE_RATE):
     global interrupt_requested, is_agent_speaking, interrupt_noise_floor_rms
@@ -994,65 +995,82 @@ def current_speech_generation() -> int:
 def speech_generation_is_current(generation: int) -> bool:
     return generation == current_speech_generation()
 
-def cancel_speech_for_board_change() -> tuple[int, bool]:
-    global _speech_generation, _active_brain_response
-    was_speaking = is_agent_speaking or is_audio_playing or not playback_queue.empty()
-    with _speech_generation_lock:
-        _speech_generation += 1
-        generation = _speech_generation
-        response = _active_brain_response
-        _active_brain_response = None
-    if response is not None:
-        try:
-            response.close()
-        except Exception:
-            pass
-    clear_all_queues()
-    return generation, was_speaking
+# ==========================================
+# BOARD ANNOUNCEMENT SETTLING & QUEUE ENGINE
+# ==========================================
+_pending_announcement_lock = threading.Lock()
+_pending_board_name: Optional[str] = None
+_pending_product_id: Optional[int] = None
+_pending_is_carousel: bool = False
+_pending_board_start_time: float = 0.0
+_last_announced_board: Optional[str] = None
 
-def announce_pointed_board(board_name: str, product_id: Optional[int], projection_selection: bool = False):
-    global _last_announced_board, _last_announcement_time
-    now = time.time()
-    with _announcement_lock:
-        # If pointing at the same board, require at least 2.5s cooldown before re-announcing
-        if not projection_selection and board_name == _last_announced_board and (now - _last_announcement_time) < 2.5:
+def queue_board_announcement(board_name: str, product_id: Optional[int] = None, is_carousel: bool = False):
+    """Queue a board for announcement. Must remain as main product for >= 0.5s to be spoken."""
+    global _pending_board_name, _pending_product_id, _pending_is_carousel, _pending_board_start_time
+    clean_name = str(board_name).strip()
+    if not clean_name:
+        return
+    with _pending_announcement_lock:
+        # If this board was already the most recently announced board, don't re-announce
+        if clean_name == _last_announced_board and _pending_board_name is None:
             return
-        # If moving between boards, require a short 0.6s stabilization window
-        if not projection_selection and (now - _last_announcement_time) < 0.6:
+        # If the incoming board is already the currently pending candidate, don't reset its timer
+        if _pending_board_name == clean_name:
             return
-        _last_announced_board = board_name
-        _last_announcement_time = now
+        # A new board candidate has been selected - start the 0.5s settling timer
+        _pending_board_name = clean_name
+        _pending_product_id = product_id
+        _pending_is_carousel = is_carousel
+        _pending_board_start_time = time.time()
 
-    generation, was_speaking = cancel_speech_for_board_change()
-    if projection_selection:
-        templates = (
-            ("Oh, I see, you've switched to the {board} board. What would you like to know about it?",
-             "Got it, we're looking at the {board} board now. What would you like to know about it?",
-             "Okay, switching focus to the {board} board. What can I tell you about it?")
-            if was_speaking else
-            ("This is the {board} board. What would you like to know about it?",
-             "You're looking at the {board} board. What would you like to know about it?",
-             "Here's the {board} board. What can I tell you about it?")
-        )
-    else:
-        templates = (
-            ("Oh, I see, you've switched to {board}. What would you like to know?",
-             "Got it, we're looking at {board} now. What would you like to know?",
-             "Okay, switching focus to {board}. What can I tell you about it?")
-            if was_speaking else
-            ("That's {board}. What would you like to know about it?",
-             "You're pointing at {board}. What would you like to know?",
-             "Got it, {board}. What can I tell you about it?")
-        )
-    text = random.choice(templates).format(board=board_name)
-    def _speak_selection():
-        while speech_generation_is_current(generation) and (
-            is_agent_speaking or is_audio_playing or not playback_queue.empty()
-        ):
-            time.sleep(0.03)
-        if speech_generation_is_current(generation):
-            speak_direct(text, speech_generation=generation)
-    threading.Thread(target=_speak_selection, daemon=True, name="PointingBoardAnnouncement").start()
+def announce_pointed_board(board_name: str, product_id: Optional[int] = None, projection_selection: bool = False):
+    """Backward compatibility shim forwarding to queue_board_announcement."""
+    queue_board_announcement(board_name, product_id, is_carousel=projection_selection)
+
+def board_announcement_worker():
+    """Background worker that lets current announcements complete fully without interruption,
+
+    checks that the pending board has stayed active for >= 0.5s, and announces it.
+    """
+    global _pending_board_name, _pending_product_id, _pending_is_carousel
+    global _pending_board_start_time, _last_announced_board
+
+    while True:
+        time.sleep(0.04)
+
+        # 1. NEVER interrupt active speech: let the current announcement or answer complete fully
+        if is_agent_speaking or is_audio_playing or not playback_queue.empty():
+            continue
+
+        target_to_announce = None
+        target_carousel = False
+
+        with _pending_announcement_lock:
+            if _pending_board_name is not None:
+                elapsed = time.time() - _pending_board_start_time
+                if elapsed >= 0.5:
+                    # Board stayed active as main product for >= 0.5s!
+                    if _pending_board_name != _last_announced_board:
+                        target_to_announce = _pending_board_name
+                        target_carousel = _pending_is_carousel
+                    _pending_board_name = None
+
+        if target_to_announce:
+            _last_announced_board = target_to_announce
+            templates = (
+                ("This is the {board} board. What would you like to know about it?",
+                 "You're looking at the {board} board. What would you like to know about it?",
+                 "Here's the {board} board. What can I tell you about it?")
+                if target_carousel else
+                ("That's {board}. What would you like to know about it?",
+                 "You're pointing at {board}. What would you like to know?",
+                 "Got it, {board}. What can I tell you about it?")
+            )
+            text = random.choice(templates).format(board=target_to_announce)
+            speak_direct(text, allow_interrupt=False)
+
+threading.Thread(target=board_announcement_worker, daemon=True, name="BoardAnnouncementWorker").start()
 
 def synthesize_and_queue(sentence: str, generation: Optional[int] = None):
     global interrupt_requested
@@ -1106,7 +1124,7 @@ def clear_all_queues():
         except queue.Empty:
             break
 
-def speak_direct(text: str, spoken_text: Optional[str] = None, speech_generation: Optional[int] = None):
+def speak_direct(text: str, spoken_text: Optional[str] = None, speech_generation: Optional[int] = None, allow_interrupt: bool = False):
     global is_agent_speaking, interrupt_requested
     generation = current_speech_generation() if speech_generation is None else speech_generation
     reset_barge_in_capture()
@@ -1120,22 +1138,25 @@ def speak_direct(text: str, spoken_text: Optional[str] = None, speech_generation
     try:
         with _tts_lock:
             samples, sr = kokoro.create(clean_speech_text, voice=CUSTOM_VOICE, speed=VOICE_SPEED, lang="en-us")
-        if not interrupt_requested and speech_generation_is_current(generation) and samples is not None and len(samples) > 0:
-            # Pad 250ms of trailing silence to protect final phonemes from buffer clipping
-            pad_samples = int(0.25 * sr)
-            samples = np.pad(samples, (0, pad_samples), mode='constant')
-            playback_queue.put((samples, sr, generation))
-        while (not playback_queue.empty() or is_audio_playing) and not interrupt_requested and speech_generation_is_current(generation):
+        if samples is not None and len(samples) > 0:
+            if not allow_interrupt or (not interrupt_requested and speech_generation_is_current(generation)):
+                # Pad 250ms of trailing silence to protect final phonemes from buffer clipping
+                pad_samples = int(0.25 * sr)
+                samples = np.pad(samples, (0, pad_samples), mode='constant')
+                playback_queue.put((samples, sr, generation))
+        while (not playback_queue.empty() or is_audio_playing):
+            if allow_interrupt and (interrupt_requested or not speech_generation_is_current(generation)):
+                break
             time.sleep(0.02)
     except Exception as e:
         print(f"[TTS DIRECT ERROR]: {e}")
     finally:
-        if interrupt_requested:
+        if allow_interrupt and interrupt_requested:
             clear_playback_queue()
         finish_barge_in_capture()
         if speech_generation_is_current(generation):
             is_agent_speaking = False
-        time.sleep(0.1)
+        time.sleep(0.08)
 
 # ==========================================
 # AGENT-VISION PRESENCE STATE & IPC BRIDGE
