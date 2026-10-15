@@ -631,8 +631,7 @@ async def pointing_ws_handler(websocket):
                             needs_latch = current_pointed_product_id != product_id
                         if is_new_point and needs_latch:
                             latch_hardware_product(product_id, "pointing")
-                        if is_new_point:
-                            queue_board_announcement(str(product.get("name") or new_board), product_id, is_carousel=False)
+                        update_active_board_target(str(product.get("name") or new_board), product_id, is_carousel=False)
                     elif new_board is not None and str(new_board).strip():
                         board_str = str(new_board).strip()
                         with pointed_board_lock:
@@ -641,16 +640,14 @@ async def pointing_ws_handler(websocket):
                             _last_pointed_board_name = board_str
                             current_pointed_board = board_str
                             current_pointed_product_id = None
-                        id_suffix = " (no product ID)"
-                        print(f"[HARDWARE] Latched active board to: {board_str}{id_suffix}")
-                        if "dashboard_server" in globals() and hasattr(dashboard_server, "set_hardware_focus"):
-                            dashboard_server.set_hardware_focus(board_str)
                         if is_new_selection:
-                            queue_board_announcement(board_str, None, is_carousel=False)
+                            id_suffix = " (no product ID)"
+                            print(f"[HARDWARE] Latched active board to: {board_str}{id_suffix}")
+                            if "dashboard_server" in globals() and hasattr(dashboard_server, "set_hardware_focus"):
+                                dashboard_server.set_hardware_focus(board_str)
+                        update_active_board_target(board_str, None, is_carousel=False)
                     else:
-                        # Hand pulled back or no target in this frame:
-                        # Preserve latched state and avoid immediate reset to prevent 1-frame tracking jitter
-                        pass
+                        update_active_board_target(None)
                 elif data.get("event") == "set_audio_device" or data.get("type") == "SET_AUDIO_DEVICE":
                     dev_id = data.get("device_id", "")
                     dev_name = data.get("device_name", "")
