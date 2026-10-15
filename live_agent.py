@@ -1001,6 +1001,23 @@ def apply_tts_acronym_pronunciations(text: str) -> str:
         text = re.sub(pattern, lambda _: spoken, text, flags=re.IGNORECASE)
     return text
 
+def apply_active_product_spoken_name(text: str) -> str:
+    """Use a catalog-provided spoken name for the currently selected product."""
+    with pointed_board_lock:
+        product_id = current_pointed_product_id
+    product = projection_bridge.get_product(product_id)
+    if not product:
+        return text
+    product_name = str(product.get("name") or "").strip()
+    spoken_name = str(product.get("spokenName") or "").strip()
+    if not product_name or not spoken_name:
+        return text
+    name_parts = [part for part in re.split(r"[\s-]+", product_name) if part]
+    if not name_parts:
+        return text
+    product_pattern = r"(?<!\w)" + r"[-\s]+".join(re.escape(part) for part in name_parts) + r"(?!\w)"
+    return re.sub(product_pattern, lambda _: spoken_name, text, flags=re.IGNORECASE)
+
 def _normalize_speech_text(text: str) -> str:
     # Replace unicode quotes and apostrophes with ASCII equivalents
     text = text.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
@@ -1009,6 +1026,7 @@ def _normalize_speech_text(text: str) -> str:
     return ' '.join(text.split())
 
 def clean_spoken_text(text: str) -> str:
+    text = apply_active_product_spoken_name(text)
     for pattern, replacement in PHONETIC_REPLACEMENTS.items():
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
     text = apply_tts_acronym_pronunciations(text)

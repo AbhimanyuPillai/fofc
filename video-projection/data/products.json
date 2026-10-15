@@ -53,6 +53,7 @@
   {
     "id": 4,
     "name": "IS-Barrier",
+    "spokenName": "I. S. Barrier",
     "category": "Safety layer",
     "description": "An IS- barrier is a protection device that limits the electrical energy going into hazardous areas, preventing sparks or heat that could ignite fuel vapors.",
     "modelPath": "/3dModels/SMART_C_Final_compressed-1764932728039-1764933252258-1766051420465.glb",
