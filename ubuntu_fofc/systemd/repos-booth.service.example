@@ -1,0 +1,19 @@
+[Unit]
+Description=Repos exhibition booth agent pipeline
+Wants=network-online.target
+After=network-online.target graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/ubuntu_fofc
+Environment=PYTHONUNBUFFERED=1
+Environment=VIDEO_PROJECTION_URL=http://127.0.0.1:3000
+ExecStart=%h/ubuntu_fofc/.venv/bin/python %h/ubuntu_fofc/run_booth.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillMode=mixed
+
+[Install]
+WantedBy=graphical-session.target

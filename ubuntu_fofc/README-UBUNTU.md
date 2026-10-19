@@ -7,8 +7,9 @@ external to this folder and is neither copied nor started here.
 ## Ubuntu-side differences
 
 - `run_booth.py` is a Linux-safe supervisor. It starts the dashboard, builds
-  and serves the pointing HUD, and launches `live_agent.py`. It checks for
-  port conflicts and does not kill processes it does not own.
+  and serves the pointing HUD, and restarts `live_agent.py` after a crash or
+  sustained loss of its HTTP/WebSocket services, using a capped backoff. It
+  checks for port conflicts and does not kill processes it does not own.
 - `live_agent.py` chooses a usable input device from PortAudio rather than
   assuming a Windows Realtek microphone or a fixed Windows device index.
 - The dashboard and projection bridge read `VIDEO_PROJECTION_URL`; both
@@ -87,7 +88,9 @@ python run_booth.py --projection-url http://127.0.0.1:3000
 
 The launcher provides the master dashboard at `http://127.0.0.1:8000`,
 the face/admin API at port `8088`, and the pointing HUD at port `5173`. It does
-not start or alter the projection application. Use Ctrl+C to stop the pipeline.
+not start or alter the projection application. Staff diagnostics are at
+`http://127.0.0.1:8000/diagnostics`; the pipeline supervisor status remains
+available there even while the agent is restarting. Use Ctrl+C to stop the pipeline.
 
 If a port is reported as occupied, stop the service that owns it and retry.
 The launcher deliberately will not terminate unrelated processes.
@@ -108,6 +111,20 @@ The launcher deliberately will not terminate unrelated processes.
 
 Run the launcher from the Ubuntu desktop session so Chromium can open the
 dashboard and the booth's cameras, microphone, and speakers are available.
-After manual operation is stable, configure desktop-session autostart or a
-user-level service for the launcher. Keep the Electron projection app in that
-same desktop session and start the agent after it is ready.
+For automatic recovery if the launcher itself exits, install the user-level
+systemd unit after editing its `WorkingDirectory` and `ExecStart` paths if this
+folder is not `~/ubuntu_fofc`:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp systemd/repos-booth.service.example ~/.config/systemd/user/repos-booth.service
+systemctl --user daemon-reload
+systemctl --user enable --now repos-booth.service
+```
+
+Use `systemctl --user status repos-booth.service` to check the launcher and
+`journalctl --user -u repos-booth.service -f` to follow its output. The
+launcher writes rotated restart history to `logs/pipeline_supervisor.log`.
+The systemd unit is attached to the graphical session because the booth
+browser and camera permissions need the logged-in desktop. Keep the Electron
+projection app in that same session and start it before the agent when possible.

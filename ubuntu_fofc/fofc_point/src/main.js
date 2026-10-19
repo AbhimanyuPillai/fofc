@@ -52,6 +52,11 @@ class AgentBridge {
       }));
     }
   }
+  sendDiagnostics(metrics) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'DIAGNOSTICS', metrics, timestamp: Date.now() }));
+    }
+  }
 }
 
 class AeroFingerApp {
@@ -127,6 +132,7 @@ class AeroFingerApp {
     // WebSocket Telemetry Bridge to Jarvis Live Agent
     this.bridge = new AgentBridge();
     this.lastReportedBoard = null;
+    this.lastDiagnosticsSentAt = 0;
 
     // Modules
     this.tracker = new EdgeHandTracker();
@@ -377,6 +383,18 @@ class AeroFingerApp {
     // Check Pointing Beam Intersection & Render Areas in screen pixels
     const dwellState = this.zoneManager.update(pointingRay, w, h, timestamp);
     this.zoneManager.render(this.ctx, w, h, dwellState);
+
+    if (this.bridge && timestamp - this.lastDiagnosticsSentAt >= 1000) {
+      this.bridge.sendDiagnostics({
+        fps: this.tracker.fps || 0,
+        frame_width: this.video.videoWidth || 0,
+        frame_height: this.video.videoHeight || 0,
+        pointing_hand_count: this.latestLandmarks ? this.latestLandmarks.length : 0,
+        pointing_active: Boolean(pointingRay),
+        active_product_id: dwellState && dwellState.zone ? Number(dwellState.zone.productId) || null : null,
+      });
+      this.lastDiagnosticsSentAt = timestamp;
+    }
 
     // WebSocket Telemetry: when pointing ray leaves all zones or no pointing posture is active
     if ((!pointingRay || !dwellState || !dwellState.zone) && this.lastReportedBoard !== null) {

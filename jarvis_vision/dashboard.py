@@ -38,10 +38,12 @@ class PresenceTracker:
         self.hysteresis_sec = hysteresis_sec
         self.current_user_id = None
         self.last_seen_ts = 0.0
+        self.last_departed_user_id = None
 
     def update(self, detected_user_id: Optional[str]):
         now = time.time()
         event = None
+        self.last_departed_user_id = None
 
         if detected_user_id and detected_user_id != "unknown":
             if self.current_user_id != detected_user_id:
@@ -53,6 +55,7 @@ class PresenceTracker:
             if self.current_user_id and (now - self.last_seen_ts > self.hysteresis_sec):
                 # Departure Event
                 event = "DEPARTURE"
+                self.last_departed_user_id = self.current_user_id
                 self.current_user_id = None
 
         return event, self.current_user_id
@@ -61,6 +64,9 @@ class PresenceTracker:
         return self.current_user_id is not None
 
 presence_tracker = PresenceTracker(hysteresis_sec=2.0)
+_vision_diagnostics_lock = threading.Lock()
+_vision_diagnostics = {"last_frame_at": None, "frame_width": None, "frame_height": None,
+                       "frame_processing_ms": None, "detection_count": 0, "fps": 0.0}
 
 # Thread-safe callback registry & IPC dispatcher for agent integration
 _presence_callbacks: List[Callable[[str, Optional[Dict[str, Any]]], None]] = []
@@ -398,6 +404,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             <label>Custom Spoken Greeting</label>
             <input type="text" id="customGreeting" placeholder="e.g. Hey Abhi!, What's up!!">
           </div>
+          <div class="form-group">
+            <label>Returning Greeting (after the 5-minute cooldown)</label>
+            <input type="text" id="returningGreeting" placeholder="e.g. Welcome back, Abhi!">
+          </div>
           <button type="submit" class="btn-success" style="margin-top: 0.5rem;">Save & Enroll Face Embeddings</button>
         </form>
       </div>
@@ -454,8 +464,29 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     // Start WebRTC camera stream with persistent deviceId support
     let currentVideoDeviceId = localStorage.getItem('facecam_device') || null;
+    let currentVideoLabel = '';
     let inferenceIntervalStarted = false;
     let cameraSelectionFailed = false;
+    let cameraStreamGeneration = 0;
+    let lastFrameErrorReport = 0;
+    let frameErrorActive = false;
+
+    function reportCameraStatus(state, details = {}) {
+      const payload = {
+        type: 'FACE_CAMERA_STATUS', state,
+        device_name: details.device_name || currentVideoLabel || '',
+        error: details.error || '',
+        fallback_active: details.fallback_active ?? cameraSelectionFailed,
+        width: webcam.videoWidth || null,
+        height: webcam.videoHeight || null,
+        fps: details.fps || null
+      };
+      window.parent?.postMessage(payload, '*');
+      fetch('/api/face_camera/status', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).catch(err => console.warn('Could not report face camera status:', err));
+    }
 
     async function publishCameraDevices(selectionFailed = false) {
       try {
@@ -486,13 +517,17 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       overlayCanvas.height = webcam.videoHeight;
       const activeTrack = webcam.srcObject?.getVideoTracks()[0];
       currentVideoDeviceId = activeTrack?.getSettings().deviceId || currentVideoDeviceId;
+      currentVideoLabel = activeTrack?.label || currentVideoLabel || 'Active camera';
       if (currentVideoDeviceId) localStorage.setItem('facecam_device', currentVideoDeviceId);
       publishCameraDevices(cameraSelectionFailed);
+      reportCameraStatus('ready', { device_name: currentVideoLabel, fallback_active: cameraSelectionFailed });
       cameraSelectionFailed = false;
       if (!inferenceIntervalStarted) startInferenceLoop();
     }
 
-    async function initCamera(deviceId = null) {
+    async function initCamera(deviceId = null, deviceLabel = '') {
+      const generation = ++cameraStreamGeneration;
+      reportCameraStatus('starting', { device_name: deviceLabel || currentVideoLabel });
       try {
         if (webcam.srcObject) {
           try {
@@ -502,6 +537,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         }
         if (deviceId) {
           currentVideoDeviceId = deviceId;
+          currentVideoLabel = deviceLabel || currentVideoLabel;
           localStorage.setItem('facecam_device', deviceId);
         }
         const videoConstraints = {
@@ -516,10 +552,17 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const stream = await navigator.mediaDevices.getUserMedia({
           video: videoConstraints
         });
-        webcam.srcObject = stream;
         webcam.onloadedmetadata = onCameraReady;
+        webcam.srcObject = stream;
+        stream.getVideoTracks().forEach(track => track.addEventListener('ended', () => {
+          if (generation !== cameraStreamGeneration) return;
+          reportCameraStatus('ended', { device_name: track.label || currentVideoLabel,
+            error: 'The camera track ended. Check whether the camera was disconnected or its permission changed.' });
+        }, { once: true }));
       } catch (err) {
         console.warn('Camera access warning:', err);
+        reportCameraStatus('failed', { device_name: deviceLabel || currentVideoLabel,
+          error: `${err.name || 'CameraError'}: ${err.message || err}` });
         if (currentVideoDeviceId) {
           // Fallback to default user camera if exact device constraint failed
           cameraSelectionFailed = true;
@@ -529,13 +572,22 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             const fallbackStream = await navigator.mediaDevices.getUserMedia({
               video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
             });
-            webcam.srcObject = fallbackStream;
             webcam.onloadedmetadata = onCameraReady;
+            webcam.srcObject = fallbackStream;
+            fallbackStream.getVideoTracks().forEach(track => track.addEventListener('ended', () => {
+              if (generation !== cameraStreamGeneration) return;
+              reportCameraStatus('ended', { device_name: track.label || currentVideoLabel,
+                error: 'The fallback camera track ended.' });
+            }, { once: true }));
           } catch (fbErr) {
             showToast('Camera access failed: ' + fbErr.message, 'error');
+            reportCameraStatus('failed', { device_name: deviceLabel || currentVideoLabel,
+              error: `Selected camera failed (${err.name || 'CameraError'}: ${err.message || err}); fallback failed (${fbErr.name || 'CameraError'}: ${fbErr.message || fbErr}).` });
           }
         } else {
           showToast('Camera access failed: ' + err.message, 'error');
+          reportCameraStatus('failed', { device_name: deviceLabel || currentVideoLabel,
+            error: `${err.name || 'CameraError'}: ${err.message || err}` });
         }
       }
     }
@@ -548,7 +600,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       } else if (e.data.type === 'CHANGE_CAMERA' || (e.data.type === 'REPOS_MEDIA_SELECT' && e.data.kind === 'videoinput')) {
         const targetId = e.data.deviceId;
         if (targetId && targetId !== currentVideoDeviceId) {
-          await initCamera(targetId);
+          await initCamera(targetId, e.data.deviceLabel || '');
         }
       } else if (e.data.type === 'CAPTURE_FACE_SAMPLE') {
         if (!webcam.videoWidth || !webcam.videoHeight) {
@@ -566,6 +618,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const displayName = (e.data.displayName || '').trim();
         const pronunciation = (e.data.pronunciation || '').trim();
         const customGreeting = (e.data.customGreeting || '').trim();
+        const returningGreeting = (e.data.returningGreeting || '').trim();
         const userId = (e.data.userId || '').trim();
         const snaps = Array.isArray(e.data.samples) ? e.data.samples.filter(blob => blob instanceof Blob) : [];
         if (!displayName || !userId || snaps.length !== 5) {
@@ -578,6 +631,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         fd.append('role', e.data.role || 'visitor');
         fd.append('pronunciation', pronunciation);
         fd.append('custom_greeting', customGreeting);
+        fd.append('returning_greeting', returningGreeting);
         snaps.forEach((b, i) => fd.append('files', b, `snap_${i}.jpg`));
 
         try {
@@ -591,6 +645,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             displayName: data.display_name || displayName,
             pronunciation: data.pronunciation || pronunciation,
             customGreeting: data.custom_greeting || customGreeting,
+            returningGreeting: data.returning_greeting || returningGreeting,
             samples: data.samples_enrolled
           }, '*');
           loadGallery();
@@ -623,6 +678,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             const t0 = performance.now();
             const res = await fetch('/api/recognize_frame', { method: 'POST', body: fd });
             const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || `Face frame request failed (HTTP ${res.status})`);
             const t1 = performance.now();
             
             // Streamlined low-profile FPS display
@@ -632,7 +688,16 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
             drawDetections(data.detections || []);
             handlePresenceState(data.presence_event, data.active_user);
+            if (frameErrorActive) {
+              frameErrorActive = false;
+              reportCameraStatus('ready', { device_name: currentVideoLabel });
+            }
           } catch (e) {
+            if (Date.now() - lastFrameErrorReport >= 5000) {
+              lastFrameErrorReport = Date.now();
+              frameErrorActive = true;
+              reportCameraStatus('frame_error', { error: e.message || String(e) });
+            }
           } finally {
             isProcessing = false;
           }
@@ -748,6 +813,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const displayName = document.getElementById('displayName').value.trim();
       const role = document.getElementById('role').value;
       const customGreeting = document.getElementById('customGreeting').value.trim();
+      const returningGreeting = document.getElementById('returningGreeting').value.trim();
 
       if (capturedBlobs.length === 0) {
         showToast('Please capture at least 2-3 snapshots!', 'error');
@@ -759,6 +825,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       fd.append('display_name', displayName);
       fd.append('role', role);
       fd.append('custom_greeting', customGreeting);
+      fd.append('returning_greeting', returningGreeting);
       capturedBlobs.forEach((b, i) => fd.append('files', b, `snap_${i}.jpg`));
 
       try {
@@ -836,6 +903,7 @@ async def list_users():
             "role": u.get("role", "visitor"),
             "pronunciation": u.get("pronunciation", ""),
             "custom_greeting": u.get("custom_greeting", ""),
+            "returning_greeting": u.get("returning_greeting", ""),
             "registered_at": u.get("registered_at", ""),
             "sample_count": len(sample_paths)
         })
@@ -848,6 +916,7 @@ async def register_user(
     role: str = Form("visitor"),
     pronunciation: str = Form(""),
     custom_greeting: str = Form(""),
+    returning_greeting: str = Form(""),
     files: List[UploadFile] = File(...)
 ):
     clean_uid = user_id.strip().lower()
@@ -859,7 +928,8 @@ async def register_user(
         display_name=display_name,
         role=role,
         pronunciation=pronunciation,
-        custom_greeting=custom_greeting
+        custom_greeting=custom_greeting,
+        returning_greeting=returning_greeting,
     )
 
     saved_count = 0
@@ -883,7 +953,8 @@ async def register_user(
             "display_name": user_record.get("display_name", clean_uid),
             "role": user_record.get("role", "visitor"),
             "pronunciation": user_record.get("pronunciation", ""),
-            "custom_greeting": user_record.get("custom_greeting", "")
+            "custom_greeting": user_record.get("custom_greeting", ""),
+            "returning_greeting": user_record.get("returning_greeting", "")
         })
 
     return {
@@ -892,6 +963,7 @@ async def register_user(
         "display_name": user_record["display_name"],
         "pronunciation": user_record.get("pronunciation", ""),
         "custom_greeting": user_record.get("custom_greeting", ""),
+        "returning_greeting": user_record.get("returning_greeting", ""),
         "samples_enrolled": enrolled_samples
     }
 
@@ -908,7 +980,8 @@ async def update_user_profile(user_id: str, payload: dict):
         display_name=str(payload.get("display_name", existing.get("display_name", clean_uid))),
         role=str(payload.get("role", existing.get("role", "visitor"))),
         pronunciation=str(payload.get("pronunciation", existing.get("pronunciation", ""))),
-        custom_greeting=str(payload.get("custom_greeting", existing.get("custom_greeting", "")))
+        custom_greeting=str(payload.get("custom_greeting", existing.get("custom_greeting", ""))),
+        returning_greeting=str(payload.get("returning_greeting", existing.get("returning_greeting", "")))
     )
 
     if presence_tracker.current_user_id == clean_uid:
@@ -917,7 +990,8 @@ async def update_user_profile(user_id: str, payload: dict):
             "display_name": user_record.get("display_name", clean_uid),
             "role": user_record.get("role", "visitor"),
             "pronunciation": user_record.get("pronunciation", ""),
-            "custom_greeting": user_record.get("custom_greeting", "")
+            "custom_greeting": user_record.get("custom_greeting", ""),
+            "returning_greeting": user_record.get("returning_greeting", "")
         })
 
     return {
@@ -926,7 +1000,8 @@ async def update_user_profile(user_id: str, payload: dict):
         "display_name": user_record.get("display_name", clean_uid),
         "role": user_record.get("role", "visitor"),
         "pronunciation": user_record.get("pronunciation", ""),
-        "custom_greeting": user_record.get("custom_greeting", "")
+        "custom_greeting": user_record.get("custom_greeting", ""),
+        "returning_greeting": user_record.get("returning_greeting", "")
     }
 
 @app.delete("/api/users/{user_id}")
@@ -942,6 +1017,7 @@ async def delete_user(user_id: str):
 @app.post("/api/recognize_frame")
 async def recognize_frame(frame: UploadFile = File(...)):
     """Receives camera frame, runs YuNet + SFace, and handles presence hysteresis."""
+    frame_started = time.monotonic()
     try:
         content = await frame.read()
         nparr = np.frombuffer(content, np.uint8)
@@ -950,6 +1026,16 @@ async def recognize_frame(frame: UploadFile = File(...)):
             return JSONResponse(status_code=400, content={"error": "Invalid image data"})
 
         detections = engine.process_frame(img_bgr)
+        frame_finished = time.monotonic()
+        with _vision_diagnostics_lock:
+            previous_at = _vision_diagnostics["last_frame_at"]
+            _vision_diagnostics.update({
+                "last_frame_at": time.time(), "frame_width": int(img_bgr.shape[1]),
+                "frame_height": int(img_bgr.shape[0]),
+                "frame_processing_ms": round((frame_finished - frame_started) * 1000, 1),
+                "detection_count": len(detections),
+                "fps": round(1.0 / max(0.001, time.time() - previous_at), 1) if previous_at else 0.0,
+            })
 
         # Find best detected recognized user
         known_matches = [d for d in detections if d.get("user_id") != "unknown"]
@@ -960,15 +1046,17 @@ async def recognize_frame(frame: UploadFile = File(...)):
         event, current_id = presence_tracker.update(best_uid)
 
         active_user_data = None
-        if current_id:
-            user_record = db.get_user(current_id)
+        event_user_id = current_id or (presence_tracker.last_departed_user_id if event == "DEPARTURE" else None)
+        if event_user_id:
+            user_record = db.get_user(event_user_id)
             if user_record:
                 active_user_data = {
-                    "user_id": current_id,
-                    "display_name": user_record.get("display_name", current_id),
+                    "user_id": event_user_id,
+                    "display_name": user_record.get("display_name", event_user_id),
                     "role": user_record.get("role", "visitor"),
                     "pronunciation": user_record.get("pronunciation", ""),
                     "custom_greeting": user_record.get("custom_greeting", ""),
+                    "returning_greeting": user_record.get("returning_greeting", ""),
                     "score": float(best_user["score"]) if best_user else 0.0
                 }
 
@@ -996,13 +1084,24 @@ async def get_presence_state():
                 "display_name": user_record.get("display_name", user_record["user_id"]),
                 "role": user_record.get("role", "visitor"),
                 "pronunciation": user_record.get("pronunciation", ""),
-                "custom_greeting": user_record.get("custom_greeting", "")
+                "custom_greeting": user_record.get("custom_greeting", ""),
+                "returning_greeting": user_record.get("returning_greeting", "")
             }
     return {
         "is_present": presence_tracker.is_user_present(),
         "current_user_id": presence_tracker.current_user_id,
         "active_user": user_data
     }
+
+@app.get("/api/vision/diagnostics")
+async def get_vision_diagnostics():
+    """Return camera timing/count metrics without exposing identities or frames."""
+    with _vision_diagnostics_lock:
+        metrics = dict(_vision_diagnostics)
+    last_frame_at = metrics.pop("last_frame_at", None)
+    metrics["frame_age_ms"] = round((time.time() - last_frame_at) * 1000, 1) if last_frame_at else None
+    metrics["is_present"] = presence_tracker.is_user_present()
+    return metrics
 
 def run_dashboard(host: str = "0.0.0.0", port: int = 8080):
     print(f"[JARVIS VISION] Hub starting on http://{host}:{port}")

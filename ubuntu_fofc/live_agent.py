@@ -25,6 +25,7 @@ import audio_feedback
 import dashboard_server
 import projection_bridge
 import video_playback_controller
+from greeting_policy import GreetingPolicy
 
 
 # Windows CUDA / DLL directory configuration for ONNX Runtime GPU
@@ -279,10 +280,24 @@ voices_path = os.path.join(WORKSPACE_DIR, "voices.bin") if os.path.exists(os.pat
     os.path.join(WORKSPACE_DIR, "voices.json") if os.path.exists(os.path.join(WORKSPACE_DIR, "voices.json")) else "voices.json"
 )
 
-kokoro = Kokoro(
-    model_path=model_path,
-    voices_path=voices_path
-)
+_previous_onnx_provider = os.environ.get("ONNX_PROVIDER")
+_preferred_onnx_provider = selected_providers[0]
+os.environ["ONNX_PROVIDER"] = _preferred_onnx_provider
+try:
+    try:
+        kokoro = Kokoro(model_path=model_path, voices_path=voices_path)
+    except Exception as provider_error:
+        if _preferred_onnx_provider != "CUDAExecutionProvider":
+            raise
+        print(f"[TTS WARN] CUDA provider initialization failed; retrying on CPU: {provider_error}")
+        selected_providers = ["CPUExecutionProvider"]
+        os.environ["ONNX_PROVIDER"] = "CPUExecutionProvider"
+        kokoro = Kokoro(model_path=model_path, voices_path=voices_path)
+finally:
+    if _previous_onnx_provider is None:
+        os.environ.pop("ONNX_PROVIDER", None)
+    else:
+        os.environ["ONNX_PROVIDER"] = _previous_onnx_provider
 if not hasattr(kokoro, "session"):
     kokoro.session = kokoro.sess
 kokoro.session.set_providers(selected_providers)
@@ -366,16 +381,32 @@ def get_active_pointed_context() -> Optional[str]:
     if product:
         description = str(product.get("description") or "").strip()
         category = str(product.get("category") or "").strip()
+        raw_specs = product.get("specs") or []
+        if isinstance(raw_specs, (list, tuple)):
+            specs = [str(item).strip() for item in raw_specs if str(item).strip()]
+        elif isinstance(raw_specs, str) and raw_specs.strip():
+            specs = [raw_specs.strip()]
+        else:
+            specs = []
         details = []
+        details.append(f"Product name: {board_name}.")
         if category:
             details.append(f"Category: {category}.")
         if description:
-            details.append(f"Board description: {description}")
+            details.append(f"Catalog description: {description}")
+        else:
+            details.append("Catalog description: none provided.")
+        if specs:
+            details.append("Listed specifications: " + "; ".join(specs) + ".")
+        else:
+            details.append("Listed specifications: none provided.")
         product_context = " ".join(details)
         return (
             f"[Active Table Context: The visitor is asking about or pointing to {board_name} (product ID {product_id}). "
-            f"Use this product information as the source of truth when explaining it. {product_context} "
-            "Explain what the board helps with in plain language. Do not invent specifications. "
+            f"The following catalog fields are the complete source of truth for claims about this board: {product_context} "
+            "For board-specific questions, answer only from those fields. If a requested value or fact is absent, say it is not specified; never infer or guess it. "
+            "If useful, add a clearly labeled general explanation, while stating that it is not confirmed for this board. "
+            "Explain supported information in plain language. "
             "Unless they explicitly ask about a different board, ground your answer in this board.]"
         )
 
@@ -399,6 +430,9 @@ def latch_hardware_product(product_id: int, source: str, send_to_projection: boo
         current_pointed_board = name
         current_pointed_product_id = int(product_id)
     print(f"[HARDWARE] Selected active board from {source}: {name} (product ID {product_id})")
+    dashboard_server.record_diagnostic("board", "selection_changed", details={
+        "product_id": int(product_id), "board": name, "source": source,
+    })
     if "dashboard_server" in globals() and hasattr(dashboard_server, "set_hardware_focus"):
         dashboard_server.set_hardware_focus(name, product_id=int(product_id))
     if send_to_projection:
@@ -418,6 +452,9 @@ def on_projection_product_selected(product_id: int, product_name: Optional[str] 
         current_pointed_board = name
         current_pointed_product_id = int(product_id)
     print(f"[HARDWARE] Selected active board from projection carousel: {name} (product ID {product_id})")
+    dashboard_server.record_diagnostic("board", "carousel_selection", details={
+        "product_id": int(product_id), "board": name,
+    })
     if "dashboard_server" in globals() and hasattr(dashboard_server, "set_hardware_focus"):
         dashboard_server.set_hardware_focus(name, product_id=int(product_id))
     if announce:
@@ -433,6 +470,7 @@ def handle_video_request(text: str, source: str) -> bool:
     intent = projection_bridge.detect_video_intent(text)
     if not intent:
         return False
+    dashboard_server.record_diagnostic("playback", "command_detected", details={"action": intent, "source": source})
 
     # For pause, stop, and resume: require the wake word ("Hey Repos") as specified by safety rules
     if intent in ("pause", "stop", "resume"):
@@ -632,6 +670,14 @@ def switch_audio_device(device_name: str = "", device_id: str = "", device_index
                     except Exception:
                         pass
                 persist_active_mic(target_idx)
+                dashboard_server.update_diagnostics_metrics(
+                    "audio", device_name=identity["device_name"], host_api=identity["host_api"],
+                    device_index=target_idx, model_sample_rate=SAMPLE_RATE,
+                )
+                dashboard_server.record_diagnostic("audio", "input_device_switched", details={
+                    "device_name": identity["device_name"], "host_api": identity["host_api"],
+                    "device_index": target_idx,
+                })
                 print(f"[AUDIO CAPTURE] Switched microphone to: [{target_idx}] {identity['device_name']} ({identity['host_api']})")
                 message = f"Microphone active: {identity['device_name']} ({identity['host_api'] or 'system audio'})"
                 dashboard_server.broadcast_transcript("SYSTEM", message)
@@ -651,6 +697,10 @@ def switch_audio_device(device_name: str = "", device_id: str = "", device_index
                    f"{identity['device_name']} ({identity['host_api'] or 'system default'}).")
         if failure:
             message += f" {failure}"
+        dashboard_server.record_diagnostic("audio", "input_device_switch_failed", level="warning", details={
+            "requested_device": requested_label, "active_device": identity["device_name"],
+            "active_host_api": identity["host_api"],
+        })
         print(f"[AUDIO CAPTURE WARNING] {message}")
         dashboard_server.broadcast_transcript("SYSTEM", message)
         return {"type": "AUDIO_DEVICE_STATUS", "success": False, "request_id": request_id,
@@ -662,7 +712,12 @@ async def pointing_ws_handler(websocket):
         async for message in websocket:
             try:
                 data = json.loads(message)
-                if data.get("type") == "POINTING_UPDATE":
+                if data.get("type") == "DIAGNOSTICS":
+                    metrics = data.get("metrics")
+                    if isinstance(metrics, dict):
+                        dashboard_server.update_diagnostics_metrics("pointing", **metrics,
+                                                                    websocket_connected=True)
+                elif data.get("type") == "POINTING_UPDATE":
                     raw_product_id = data.get("productId")
                     try:
                         product_id = int(raw_product_id) if raw_product_id is not None else None
@@ -718,13 +773,9 @@ def start_pointing_server():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    def _silence_winerror_10054(loop, context):
-        exc = context.get("exception")
-        if isinstance(exc, (ConnectionResetError, ConnectionAbortedError)):
-            return
-        loop.default_exception_handler(context)
-
-    loop.set_exception_handler(_silence_winerror_10054)
+    projection_bridge.install_asyncio_connection_diagnostics(
+        loop, "pointing WebSocket server"
+    )
 
     async def _serve():
         async with websockets.serve(pointing_ws_handler, "127.0.0.1", 8765):
@@ -757,6 +808,7 @@ barge_in_capture_active = False
 barge_in_silence_frames = 0
 barge_in_capture_done = threading.Event()
 interrupt_noise_floor_rms = 0.003
+_last_audio_diag_update = 0.0
 INTERRUPT_MIN_TOTAL_RMS = 0.055
 INTERRUPT_MIN_VOCAL_RMS = 0.022
 INTERRUPT_NOISE_FLOOR_MULTIPLIER = 4.0
@@ -821,7 +873,7 @@ def finish_barge_in_capture(timeout: float = 10.5):
     interrupt_requested = False
 
 def audio_callback(indata, frames, time_info, status, input_sample_rate=SAMPLE_RATE):
-    global interrupt_requested, is_agent_speaking, interrupt_noise_floor_rms
+    global interrupt_requested, is_agent_speaking, interrupt_noise_floor_rms, _last_audio_diag_update
     global barge_in_capture_frames, barge_in_capture_active, barge_in_silence_frames
 
     audio_frame = indata.copy()
@@ -837,6 +889,17 @@ def audio_callback(indata, frames, time_info, status, input_sample_rate=SAMPLE_R
     audio_queue.put(audio_frame)
 
     total_rms, vocal_rms = measure_vocal_energy(audio_frame)
+    diag_now = time.monotonic()
+    if diag_now - _last_audio_diag_update >= 1.0:
+        _last_audio_diag_update = diag_now
+        dashboard_server.update_diagnostics_metrics(
+            "audio", device_name=capture_device_name or "Unknown input",
+            host_api=capture_device_host_api or "Unknown backend",
+            model_sample_rate=SAMPLE_RATE, frame_rms=round(total_rms, 5),
+            speech_band_rms=round(vocal_rms, 5),
+            interrupt_noise_floor_rms=round(interrupt_noise_floor_rms, 5),
+            agent_speaking=bool(is_agent_speaking),
+        )
     if not is_agent_speaking:
         # Learn only from quiet frames, so ordinary speech does not raise the
         # threshold and make later interruption impossible.
@@ -882,6 +945,11 @@ def audio_callback(indata, frames, time_info, status, input_sample_rate=SAMPLE_R
         interrupt_evidence.append(False)
 
     if sum(interrupt_evidence) >= INTERRUPT_REQUIRED_FRAMES:
+        dashboard_server.record_diagnostic("audio", "voice_interrupt_triggered", details={
+            "total_rms": round(total_rms, 5), "speech_band_rms": round(vocal_rms, 5),
+            "noise_floor_rms": round(interrupt_noise_floor_rms, 5),
+            "required_frames": INTERRUPT_REQUIRED_FRAMES,
+        })
         print(
             "\n[VOICE INTERRUPT DETECTED: sustained loud, clear speech; "
             f"RMS={total_rms:.3f}, speech-band={vocal_rms:.3f}, "
@@ -1121,6 +1189,9 @@ def update_active_board_target(board_name: Optional[str], product_id: Optional[i
 
 def queue_board_announcement(board_name: str, product_id: Optional[int] = None, is_carousel: bool = False):
     """Backward compatibility shim."""
+    dashboard_server.record_diagnostic("board", "announcement_queued", details={
+        "board": board_name, "product_id": product_id, "source": "carousel" if is_carousel else "agent",
+    })
     update_active_board_target(board_name, product_id, is_carousel)
 
 def announce_pointed_board(board_name: str, product_id: Optional[int] = None, projection_selection: bool = False):
@@ -1269,8 +1340,10 @@ def speak_direct(text: str, spoken_text: Optional[str] = None, speech_generation
 # ==========================================
 # AGENT-VISION PRESENCE STATE & IPC BRIDGE
 # ==========================================
-# Persistent per-boot greeted registry: Greet once per boot session only
-boot_greeted_users: set = set()
+# Each recognized visitor gets at most one greeting per continuous presence;
+# returning visits can be greeted again after the cooldown.
+GREETING_COOLDOWN_SECONDS = 5 * 60
+greeting_policy = GreetingPolicy(cooldown_seconds=GREETING_COOLDOWN_SECONDS)
 currently_tracked_users: set = set()
 _arrival_lock = threading.Lock()
 _greeting_active = threading.Lock()
@@ -1310,7 +1383,7 @@ def apply_active_user_pronunciation(text: str) -> str:
     return apply_saved_name_pronunciation(text, display_name, pronunciation)
 
 
-def on_new_user_arrived(user_info: Union[str, Dict[str, Any]]):
+def on_new_user_arrived(user_info: Union[str, Dict[str, Any]], greeting_kind: str = "first"):
     """Triggers immediate conversational greetings upon visual entry with mid-sentence interruption."""
     global state, last_interaction_time, interrupt_requested, is_agent_speaking, vad_iterator
 
@@ -1318,16 +1391,24 @@ def on_new_user_arrived(user_info: Union[str, Dict[str, Any]]):
         display_name = str(user_info.get("display_name") or "there").strip()
         pronunciation = str(user_info.get("pronunciation") or "").strip()
         custom_greeting = str(user_info.get("custom_greeting") or "").strip()
+        returning_greeting = str(user_info.get("returning_greeting") or "").strip()
     else:
         display_name = str(user_info).strip()
         pronunciation = ""
         custom_greeting = ""
+        returning_greeting = ""
 
     spoken_name = pronunciation if pronunciation else display_name
-    spoken_custom_greeting = apply_saved_name_pronunciation(
-        custom_greeting, display_name, pronunciation
+    selected_greeting = (
+        (returning_greeting or f"Welcome back, {display_name}! Good to see you again.")
+        if greeting_kind == "returning" else
+        (custom_greeting or f"Hey {display_name}! Good to see you.")
     )
-    print(f"\n[VISION ARRIVAL] First boot greeting for newcomer: {display_name} (Phonetic: {spoken_name})")
+    spoken_selected_greeting = apply_saved_name_pronunciation(
+        selected_greeting, display_name, pronunciation
+    )
+    greeting_label = "returning" if greeting_kind == "returning" else "first-time"
+    print(f"\n[VISION ARRIVAL] {greeting_label.title()} greeting for {display_name} (Phonetic: {spoken_name})")
 
     # 1. Immediate Interruption Logic (Mid-Sentence)
     if player.busy or is_agent_speaking:
@@ -1342,26 +1423,16 @@ def on_new_user_arrived(user_info: Union[str, Dict[str, Any]]):
         last_interaction_time = time.time()
         dashboard_server.set_state("ACTIVE")
 
-        if custom_greeting:
-            interjection = f"One moment... {custom_greeting}"
-            spoken_interjection = f"One moment... {spoken_custom_greeting}"
-        else:
-            interjection = f"One moment... Hey {display_name}, welcome!"
-            spoken_interjection = f"One moment... Hey {spoken_name}, welcome!"
+        interjection = f"One moment... {selected_greeting}"
+        spoken_interjection = f"One moment... {spoken_selected_greeting}"
         speak_direct(interjection, spoken_text=spoken_interjection)
     else:
         # 2. Idle / Standby Greeting (Not Speaking)
-        print(f"[VISION GREETING] Speaking first-time arrival greeting for: {display_name}")
+        print(f"[VISION GREETING] Speaking {greeting_label} greeting for: {display_name}")
         audio_feedback.play_wake_chime()
         time.sleep(0.05)
 
-        if custom_greeting:
-            greeting = custom_greeting
-            spoken_greeting = spoken_custom_greeting
-        else:
-            greeting = f"Hey {display_name}! Good to see you."
-            spoken_greeting = f"Hey {spoken_name}! Good to see you."
-        speak_direct(greeting, spoken_text=spoken_greeting)
+        speak_direct(selected_greeting, spoken_text=spoken_selected_greeting)
 
     state = "ACTIVE"
     last_interaction_time = time.time()
@@ -1406,19 +1477,12 @@ def handle_presence_event(event_type: str, user_info: Optional[Dict[str, Any]]):
         elif primary_user.get("user_id") != user_id and user_info not in visitor_queue:
             visitor_queue.append(user_info)
 
-        # Check persistent per-boot greeted registry: greet once per boot only
-        with _arrival_lock:
-            already_greeted = (user_key in boot_greeted_users) or (display_name.lower() in boot_greeted_users)
-            if not already_greeted:
-                boot_greeted_users.add(user_key)
-                boot_greeted_users.add(display_name.lower())
-
-        if already_greeted:
-            # Maintain presence tracking, but do NOT wake or greet if already greeted
-            print(f"[VISION] User {display_name} already greeted this boot session. Visual presence active; state remains {state}.")
+        greeting_kind = greeting_policy.arrive(user_key, time.time())
+        if greeting_kind is None:
+            print(f"[VISION] User {display_name} is still present or within the greeting cooldown; no repeat greeting.")
             return
 
-        print(f"\n[VISION] First-time arrival detected for this boot session: {display_name}")
+        print(f"\n[VISION] {greeting_kind.title()} arrival greeting due for: {display_name}")
 
         def _dispatch_greeting():
             if not _greeting_active.acquire(blocking=False):
@@ -1426,7 +1490,7 @@ def handle_presence_event(event_type: str, user_info: Optional[Dict[str, Any]]):
                 if not _greeting_active.acquire(timeout=2.0):
                     return
             try:
-                on_new_user_arrived(user_info)
+                on_new_user_arrived(user_info, greeting_kind=greeting_kind)
             finally:
                 _greeting_active.release()
 
@@ -1437,6 +1501,7 @@ def handle_presence_event(event_type: str, user_info: Optional[Dict[str, Any]]):
         if departed_id:
             user_key = str(departed_id).strip().lower()
             currently_tracked_users.discard(user_key)
+            greeting_policy.depart(user_key)
 
         if primary_user and primary_user.get("user_id") == departed_id:
             if visitor_queue:
@@ -1712,6 +1777,7 @@ def main():
     global state, last_interaction_time, vad_iterator
     state = "SLEEPING"
     last_interaction_time = time.time()
+    last_diagnostics_heartbeat = 0.0
 
     # VAD threshold lowered to 0.20 for reliable natural spoken voice detection
     vad_iterator = VADIterator(vad_model, threshold=0.20, sampling_rate=SAMPLE_RATE)
@@ -1767,6 +1833,15 @@ def main():
             raise RuntimeError(f"Could not open a microphone. Last selected-device error: {startup_error}; system-default error: {exc}") from exc
 
     print(f"[AUDIO CAPTURE] Selected input: [{capture_device}] {capture_device_name} ({capture_device_host_api or 'system default'})")
+    dashboard_server.update_diagnostics_metrics(
+        "audio", device_name=capture_device_name or "Unknown input",
+        host_api=capture_device_host_api or "Unknown backend", model_sample_rate=SAMPLE_RATE,
+        device_index=capture_device,
+    )
+    dashboard_server.record_diagnostic("audio", "input_stream_ready", details={
+        "device_name": capture_device_name, "host_api": capture_device_host_api,
+        "device_index": capture_device, "model_sample_rate": SAMPLE_RATE,
+    })
     print("[STATUS: SLEEPING] Waiting for recognized user arrival, speech, or typed text...\n")
 
     with active_audio_stream:
@@ -1774,6 +1849,12 @@ def main():
         persist_active_mic(capture_device)
         while True:
             current_time = time.time()
+            if current_time - last_diagnostics_heartbeat >= 1.0:
+                dashboard_server.update_diagnostics_metrics(
+                    "agent", state=state, last_seen=current_time,
+                    product_id=current_pointed_product_id,
+                )
+                last_diagnostics_heartbeat = current_time
 
             # 1. Console Text Input Check
             if not text_input_queue.empty():
@@ -2029,12 +2110,17 @@ def main():
                         # Must distinctly stand out above ambient hall noise floor and exceed minimum threshold
                         speech_rms_gate = max(0.003, ambient_noise_rms * 1.2)
                         if speech_rms <= speech_rms_gate:
+                            dashboard_server.record_diagnostic("audio", "utterance_rejected", level="warning", details={
+                                "reason": "below_level_gate", "speech_rms": round(speech_rms, 5),
+                                "room_rms": round(ambient_noise_rms, 5), "required_rms": round(speech_rms_gate, 5),
+                            })
                             print(f"[AUDIO GATE] Speech below level/SNR gate: rms={speech_rms:.4f}, room={ambient_noise_rms:.4f}, required>{speech_rms_gate:.4f}")
                             dashboard_server.set_state("ACTIVE")
                             continue
                         print(f"[AUDIO LEVEL] Captured speech RMS={speech_rms:.4f}; room RMS={ambient_noise_rms:.4f}")
 
                         print("\n[TRANSCRIBING...]")
+                        transcription_started_at = time.monotonic()
                         segments, info = stt_model.transcribe(
                             full_audio,
                             beam_size=2,
@@ -2048,7 +2134,12 @@ def main():
                             repetition_penalty=1.15
                         )
                         segment_list = list(segments)
+                        transcription_ms = round((time.monotonic() - transcription_started_at) * 1000, 1)
                         if not segment_list:
+                            dashboard_server.record_diagnostic("audio", "utterance_rejected", level="warning", details={
+                                "reason": "no_transcription", "speech_rms": round(speech_rms, 5),
+                                "transcription_ms": transcription_ms,
+                            })
                             print("[ASR GATE] Whisper returned no transcription segments for captured speech.")
                             dashboard_server.set_state("ACTIVE")
                             continue
@@ -2057,18 +2148,30 @@ def main():
 
                         # Whisper Quality Gate 1: Reject non-speech audio
                         if primary_seg.no_speech_prob > 0.50:
+                            dashboard_server.record_diagnostic("audio", "utterance_rejected", level="warning", details={
+                                "reason": "no_speech_probability", "value": round(primary_seg.no_speech_prob, 3),
+                                "transcription_ms": transcription_ms,
+                            })
                             print(f"[ASR GATE] Rejected as non-speech: no_speech_prob={primary_seg.no_speech_prob:.2f}")
                             dashboard_server.set_state("ACTIVE")
                             continue
 
                         # Whisper Quality Gate 2: Reject low-confidence acoustic murmurs
                         if primary_seg.avg_logprob < -0.85:
+                            dashboard_server.record_diagnostic("audio", "utterance_rejected", level="warning", details={
+                                "reason": "low_transcription_confidence", "value": round(primary_seg.avg_logprob, 3),
+                                "transcription_ms": transcription_ms,
+                            })
                             print(f"[ASR GATE] Low transcription confidence: avg_logprob={primary_seg.avg_logprob:.2f}")
                             dashboard_server.set_state("ACTIVE")
                             continue
 
                         # Whisper Quality Gate 3: Reject repetitive hallucination loops
                         if primary_seg.compression_ratio > 2.2 or any(s.compression_ratio > 2.2 for s in segment_list):
+                            dashboard_server.record_diagnostic("audio", "utterance_rejected", level="warning", details={
+                                "reason": "repetitive_transcription", "value": round(primary_seg.compression_ratio, 3),
+                                "transcription_ms": transcription_ms,
+                            })
                             print(f"[ASR GATE] Rejected repetitive transcription: compression_ratio={primary_seg.compression_ratio:.2f}")
                             dashboard_server.set_state("ACTIVE")
                             continue
@@ -2124,6 +2227,11 @@ def main():
                             continue
 
                         print(f"\n[YOU]: {user_text}")
+                        dashboard_server.record_diagnostic("audio", "utterance_accepted", details={
+                            "speech_rms": round(speech_rms, 5),
+                            "duration_seconds": round(len(full_audio) / SAMPLE_RATE, 2),
+                            "transcription_ms": transcription_ms,
+                        })
                         dashboard_server.broadcast_transcript("YOU", user_text)
 
                         if handle_video_request(user_text, "spoken video request"):

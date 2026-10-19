@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Repos · Staff Diagnostics</title>
+  <style>
+    :root { color-scheme: dark; --bg:#080b12; --panel:#101726; --line:#253047; --muted:#93a0b5; --text:#edf3fc; --cyan:#52d4f4; --green:#39d98a; --amber:#f8c45c; --red:#ff6878; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:radial-gradient(ellipse at 15% 0%,#10213a 0,transparent 40%),var(--bg); color:var(--text); font:14px/1.45 Inter,Segoe UI,sans-serif; }
+    header { display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:20px clamp(16px,3vw,40px); border-bottom:1px solid var(--line); position:sticky; top:0; background:#080b12ed; backdrop-filter:blur(12px); z-index:2; }
+    h1 { margin:0; font-size:1.2rem; letter-spacing:.04em; } h2 { margin:0 0 12px; font-size:.85rem; text-transform:uppercase; letter-spacing:.1em; color:#bdc9dc; }
+    .sub { color:var(--muted); font-size:.82rem; margin-top:3px; }
+    a,button { color:var(--cyan); text-decoration:none; border:1px solid var(--line); border-radius:7px; padding:8px 12px; background:#111827; cursor:pointer; }
+    a:hover,button:hover { border-color:var(--cyan); }
+    main { width:min(1480px,96vw); margin:22px auto 42px; }
+    .toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px; color:var(--muted); }
+    .grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+    .card { background:linear-gradient(145deg,#111a2a,#0d131f); border:1px solid var(--line); border-radius:10px; padding:16px; min-width:0; box-shadow:0 10px 25px #0002; }
+    .metric-label { text-transform:uppercase; letter-spacing:.09em; color:var(--muted); font-size:.68rem; }
+    .metric-value { margin-top:6px; font-size:1.05rem; font-weight:650; overflow-wrap:anywhere; }
+    .metric-sub { color:var(--muted); margin-top:5px; font: .75rem ui-monospace,Consolas,monospace; overflow-wrap:anywhere; }
+    .wide { grid-column:span 2; } .full { grid-column:1/-1; }
+    .section-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:12px; }
+    .status { display:inline-flex; align-items:center; gap:7px; text-transform:uppercase; font:600 .7rem ui-monospace,Consolas,monospace; color:var(--muted); }
+    .dot { width:8px; height:8px; border-radius:50%; background:#778196; box-shadow:0 0 10px currentColor; }
+    .ok { color:var(--green); } .ok .dot { background:var(--green); } .warn { color:var(--amber); } .warn .dot { background:var(--amber); } .bad { color:var(--red); } .bad .dot { background:var(--red); }
+    .events { max-height:390px; overflow:auto; display:flex; flex-direction:column; gap:7px; }
+    .event { display:grid; grid-template-columns:78px 92px minmax(120px,1fr) minmax(180px,1.5fr); gap:10px; align-items:start; border:1px solid #202b3d; background:#0a101b; border-radius:6px; padding:8px 10px; font-size:.76rem; }
+    .event time,.event .category { color:var(--muted); font: .68rem ui-monospace,Consolas,monospace; }
+    .event .name { font-weight:600; } .event.warning .name { color:var(--amber); } .event.error .name { color:var(--red); }
+    .event .details { color:#9eacc0; font: .68rem ui-monospace,Consolas,monospace; overflow-wrap:anywhere; }
+    .empty { color:var(--muted); padding:12px 0; }
+    .privacy { color:var(--muted); font-size:.74rem; }
+    @media(max-width:900px) { .grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .wide { grid-column:span 2; } }
+    @media(max-width:600px) { header { align-items:flex-start; } .grid,.section-grid { grid-template-columns:1fr; } .wide,.full { grid-column:auto; } .event { grid-template-columns:65px 1fr; } .event .details { grid-column:2; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div><h1>STAFF DIAGNOSTICS</h1><div class="sub">Live booth health · local session only</div></div>
+    <a href="/" aria-label="Return to the master dashboard">Main dashboard</a>
+  </header>
+  <main>
+    <div class="toolbar"><span id="updated">Connecting to booth services…</span><button id="clear-events" type="button">Clear view</button></div>
+    <section class="grid" aria-label="System overview">
+      <article class="card"><div class="metric-label">Agent</div><div class="metric-value" id="agent-state">—</div><div class="metric-sub" id="agent-health">Waiting for telemetry</div></article>
+      <article class="card"><div class="metric-label">Selected board</div><div class="metric-value" id="board">—</div><div class="metric-sub" id="product-id">No product selected</div></article>
+      <article class="card"><div class="metric-label">Projection software</div><div class="metric-value" id="projection-health">Checking…</div><div class="metric-sub" id="projection-count">Product catalog not checked</div></article>
+      <article class="card"><div class="metric-label">Agent WebSocket</div><div class="metric-value" id="agent-ws">Waiting for telemetry</div><div class="metric-sub">Pointing and control event stream</div></article>
+      <article class="card"><div class="metric-label">Pipeline supervisor</div><div class="metric-value" id="supervisor-state">Connecting…</div><div class="metric-sub" id="supervisor-detail">Waiting for launcher status</div></article>
+    </section>
+    <section class="section-grid">
+      <article class="card"><h2>Microphone & speech</h2><div class="metric-value" id="mic-name">Waiting for agent audio metrics</div><div class="metric-sub" id="mic-backend">—</div><div class="metric-sub" id="mic-levels">No recent level sample</div><div class="metric-sub" id="mic-state">—</div></article>
+      <article class="card"><h2>Face camera</h2><div class="metric-value" id="face-camera">Waiting for camera frames</div><div class="metric-sub" id="face-camera-detail">—</div><div class="metric-sub" id="face-presence">—</div></article>
+      <article class="card"><h2>Pointing camera</h2><div class="metric-value" id="point-camera">Waiting for pointing telemetry</div><div class="metric-sub" id="point-camera-detail">—</div><div class="metric-sub" id="pointing-state">—</div></article>
+      <article class="card"><h2>Configured devices</h2><div class="metric-sub" id="camera-config">Camera configuration unavailable</div><div class="metric-sub" id="device-config">Device configuration unavailable</div></article>
+      <article class="card full"><h2>Recent events</h2><div class="events" id="events"><div class="empty">No diagnostic events yet.</div></div></article>
+    </section>
+    <p class="privacy" style="margin:14px 2px 0">Diagnostics retain recent operational events in memory only. This screen does not store raw audio, camera frames, face images, or recognized conversation text.</p>
+  </main>
+  <script>
+    const API = 'http://127.0.0.1:8088';
+    let lastSequence = 0;
+    let visibleEvents = [];
+    let lastProjectionCheck = 0;
+    const byId = id => document.getElementById(id);
+    const setStatus = (id, label, state) => {
+      const el = byId(id); el.textContent = label; el.className = `metric-value ${state || ''}`;
+    };
+    const fmt = value => value === null || value === undefined ? '—' : String(value);
+    function renderEvents(events) {
+      if (events.length) visibleEvents.push(...events);
+      visibleEvents = visibleEvents.slice(-120);
+      const root = byId('events');
+      if (!visibleEvents.length) { root.innerHTML = '<div class="empty">No diagnostic events yet.</div>'; return; }
+      root.innerHTML = visibleEvents.slice().reverse().map(item => {
+        const date = new Date(item.timestamp * 1000);
+        const details = Object.entries(item.details || {}).map(([k,v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' · ');
+        return `<div class="event ${item.level || 'info'}"><time>${date.toLocaleTimeString()}</time><span class="category">${escapeHtml(item.category)}</span><span class="name">${escapeHtml(item.event)}</span><span class="details">${escapeHtml(details)}</span></div>`;
+      }).join('');
+    }
+    function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+    async function refresh() {
+      try {
+        const response = await fetch('/api/supervisor/status', {cache:'no-store'});
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const supervisor = await response.json();
+        const state = supervisor.state || 'Unknown';
+        const severity = state === 'RUNNING' ? 'ok' : state === 'RESTART_WAIT' || state === 'DEGRADED' ? 'warn' : state === 'STOPPED' ? 'bad' : '';
+        setStatus('supervisor-state', state, severity);
+        setStatus('agent-ws', state === 'RUNNING' ? 'HTTP + WebSocket healthy' : state, severity);
+        if (supervisor.next_restart_at) {
+          const wait = Math.max(0, Math.ceil(supervisor.next_restart_at - Date.now()/1000));
+          byId('supervisor-detail').textContent = `${supervisor.last_failure || 'Agent restart scheduled'} · retry in ${wait}s · ${supervisor.restart_count || 0} restart(s)`;
+        } else {
+          byId('supervisor-detail').textContent = `Agent PID ${supervisor.agent_pid || '—'} · ${supervisor.restart_count || 0} restart(s)${supervisor.last_failure ? ` · ${supervisor.last_failure}` : ''}`;
+        }
+      } catch (error) {
+        setStatus('supervisor-state', 'Unavailable', 'bad');
+        byId('supervisor-detail').textContent = `Launcher status unavailable (${error.message})`;
+      }
+      try {
+        const response = await fetch(`${API}/api/diagnostics?after=${lastSequence}`, {cache:'no-store'});
+        if (!response.ok) throw new Error(`Agent diagnostics returned HTTP ${response.status}`);
+        const data = await response.json();
+        const agent = data.agent || {}, audio = data.audio || {}, point = data.pointing || {}, faceCameraStatus = data.camera || {};
+        if (data.events?.length) renderEvents(data.events);
+        lastSequence = Math.max(lastSequence, data.latest_sequence || 0);
+        byId('updated').textContent = `Updated ${new Date().toLocaleTimeString()} · auto-refresh every 2 seconds`;
+        setStatus('agent-state', agent.state || 'Unknown', agent.state === 'ACTIVE' || agent.state === 'LISTENING' ? 'ok' : '');
+        byId('agent-health').textContent = agent.updated_at ? `Heartbeat ${Math.max(0,Math.round((Date.now()/1000-agent.updated_at)))}s ago` : 'Waiting for runtime metrics';
+        byId('board').textContent = agent.focus_board || 'No board selected';
+        byId('product-id').textContent = agent.product_id ? `Product ID ${agent.product_id}` : 'Product ID not reported';
+        byId('mic-name').textContent = audio.device_name || 'Waiting for agent audio metrics';
+        byId('mic-backend').textContent = `${audio.host_api || 'Backend unknown'} · model rate ${audio.model_sample_rate || '—'} Hz`;
+        byId('mic-levels').textContent = audio.frame_rms !== undefined ? `Input RMS ${audio.frame_rms} · speech band ${audio.speech_band_rms} · noise floor ${audio.interrupt_noise_floor_rms}` : 'No recent level sample';
+        byId('mic-state').textContent = audio.agent_speaking ? 'Agent is speaking; interrupt gate active' : 'Agent playback inactive';
+        const camera = await fetch(`${API}/api/vision/diagnostics`, {cache:'no-store'}).then(r => r.ok ? r.json() : null).catch(() => null);
+        const hasFrameTelemetry = camera && camera.frame_age_ms !== null && camera.frame_age_ms !== undefined
+          && Number.isFinite(Number(camera.frame_age_ms));
+        const freshFaceFrames = hasFrameTelemetry && Number(camera.frame_age_ms) < 2000;
+        if (freshFaceFrames) {
+          setStatus('face-camera', `${camera.frame_width} × ${camera.frame_height} · ${camera.fps} FPS`, 'ok');
+          byId('face-camera-detail').textContent = `Frame age ${Math.round(camera.frame_age_ms)} ms · processing ${camera.frame_processing_ms} ms · ${camera.detection_count} detection(s)`;
+          byId('face-presence').textContent = camera.is_present ? 'Visitor presence detected' : 'No visitor currently recognized';
+        } else {
+          const cameraState = faceCameraStatus.state || 'unknown';
+          const label = faceCameraStatus.device_name || 'Camera not identified';
+          const error = faceCameraStatus.error || '';
+          const stateLabel = cameraState === 'failed' ? 'Camera failed to open'
+            : cameraState === 'ended' ? 'Camera disconnected'
+            : cameraState === 'frame_error' ? 'Camera open; frame processing failed'
+            : cameraState === 'ready' ? 'Camera open; no frames reaching the detector'
+            : cameraState === 'starting' ? 'Camera is starting'
+            : 'No camera startup report received';
+          setStatus('face-camera', stateLabel, cameraState === 'ready' ? 'warn' : cameraState === 'starting' ? '' : 'bad');
+          byId('face-camera-detail').textContent = [label, error || 'Open the main dashboard camera feed to start face detection.'].filter(Boolean).join(' · ');
+          byId('face-presence').textContent = camera?.is_present ? 'Visitor presence detected' : 'No visitor currently recognized';
+        }
+        const pointAge = point.updated_at ? Date.now()/1000 - point.updated_at : Infinity;
+        const pointFresh = pointAge < 3.5;
+        setStatus('point-camera', pointFresh ? `${point.frame_width || '—'} × ${point.frame_height || '—'} · ${point.fps || 0} FPS` : 'Waiting / disconnected', pointFresh ? 'ok' : 'warn');
+        byId('point-camera-detail').textContent = pointFresh ? `Telemetry ${pointAge.toFixed(1)}s ago · ${point.pointing_hand_count || 0} pointing hand(s)` : 'Open the pointing HUD to begin telemetry.';
+        byId('pointing-state').textContent = pointFresh ? (point.pointing_active ? `Point posture active${point.active_product_id ? ` · product ${point.active_product_id}` : ''}` : 'No active point posture') : 'No recent WebSocket telemetry';
+        const cc = data.camera_config || {}, dc = data.device_config || {};
+        byId('camera-config').textContent = `Configured camera indexes · face ${fmt(cc.facecam_index)} · pointing ${fmt(cc.handcam_index)}`;
+        byId('device-config').textContent = `Saved mic · ${dc.agent_mic_name || audio.device_name || 'unknown'} (${dc.agent_mic_host_api || audio.host_api || 'backend unknown'})`;
+      } catch (error) {
+        setStatus('agent-state', 'Agent diagnostics unavailable', 'bad');
+        byId('agent-health').textContent = error.message;
+      }
+      if (Date.now() - lastProjectionCheck >= 10000) {
+        lastProjectionCheck = Date.now();
+        try {
+          const response = await fetch(`${API}/api/diagnostics/projection`, {cache:'no-store'});
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const projection = await response.json();
+          if (!projection.available) throw new Error(projection.error || 'Projection API unavailable');
+          setStatus('projection-health', 'Connected', 'ok');
+          byId('projection-count').textContent = `${projection.product_count} products loaded`;
+        } catch (error) {
+          setStatus('projection-health', 'Unavailable', 'warn');
+          byId('projection-count').textContent = `Projection API did not respond (${error.message})`;
+        }
+      }
+    }
+    byId('clear-events').addEventListener('click', () => { visibleEvents = []; renderEvents([]); });
+    refresh(); setInterval(refresh, 2000);
+  </script>
+</body>
+</html>

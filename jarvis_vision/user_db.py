@@ -74,7 +74,8 @@ class UserDatabase:
         display_name: str,
         role: str = "visitor",
         custom_greeting: str = "",
-        pronunciation: str = ""
+        pronunciation: str = "",
+        returning_greeting: str = ""
     ) -> Dict[str, Any]:
         """Registers or updates a user profile and prepares their face sample directory."""
         user_id = user_id.strip().lower()
@@ -91,6 +92,7 @@ class UserDatabase:
                 "role": role.strip() or "visitor",
                 "pronunciation": pronunciation.strip(),
                 "custom_greeting": custom_greeting.strip(),
+                "returning_greeting": returning_greeting.strip(),
                 "registered_at": registered_at,
                 "updated_at": datetime.utcnow().isoformat() + "Z"
             }

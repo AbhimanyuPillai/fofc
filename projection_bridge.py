@@ -271,6 +271,77 @@ import time
 from typing import Any, Dict, Optional
 from urllib.parse import urlsplit, urlunsplit
 
+_recent_http_request_lock = threading.Lock()
+_recent_http_requests = {}
+
+
+def remember_http_request(peer, method: str, path: str) -> None:
+    """Keep the most recent dashboard route for each local client socket."""
+    if not isinstance(peer, (tuple, list)) or len(peer) < 2:
+        return
+    key = (peer[0], peer[1])
+    now = time.monotonic()
+    with _recent_http_request_lock:
+        if len(_recent_http_requests) >= 512:
+            expired = [item for item, value in _recent_http_requests.items() if now - value[0] > 120]
+            for item in expired:
+                _recent_http_requests.pop(item, None)
+            if len(_recent_http_requests) >= 512:
+                oldest = min(_recent_http_requests, key=lambda item: _recent_http_requests[item][0])
+                _recent_http_requests.pop(oldest, None)
+        _recent_http_requests[key] = (now, str(method), str(path))
+
+
+def _recent_request_for_peer(peer):
+    if not isinstance(peer, (tuple, list)) or len(peer) < 2:
+        return None
+    with _recent_http_request_lock:
+        item = _recent_http_requests.get((peer[0], peer[1]))
+    if item is None:
+        return None
+    age = time.monotonic() - item[0]
+    if age > 120:
+        return None
+    return f"{item[1]} {item[2]} (last seen {age:.1f}s ago)"
+
+
+def install_asyncio_connection_diagnostics(loop: asyncio.AbstractEventLoop, component: str) -> None:
+    """Add socket and loop details before asyncio prints connection reset errors."""
+    def _diagnose(loop, context):
+        exc = context.get("exception")
+        if isinstance(exc, (ConnectionResetError, ConnectionAbortedError)) or getattr(exc, "winerror", None) == 10054:
+            transport = context.get("transport")
+            if transport is None:
+                protocol = context.get("protocol")
+                transport = getattr(protocol, "transport", None)
+            handle = context.get("handle")
+            callback_owner = getattr(getattr(handle, "_callback", None), "__self__", None)
+            if transport is None and hasattr(callback_owner, "get_extra_info"):
+                transport = callback_owner
+
+            def _extra_info(key):
+                try:
+                    return transport.get_extra_info(key) if transport is not None else None
+                except Exception:
+                    return None
+
+            try:
+                loop_name = loop.get_name()
+            except Exception:
+                loop_name = "unnamed"
+            print(
+                "[ASYNCIO CONNECTION RESET] "
+                f"component={component!r} loop={loop_name!r} "
+                f"thread={threading.current_thread().name!r} "
+                f"local={_extra_info('sockname')!r} peer={_extra_info('peername')!r} "
+                f"recent_request={_recent_request_for_peer(_extra_info('peername'))!r} "
+                f"message={context.get('message')!r} callback={handle!r} exception={exc!r}",
+                flush=True,
+            )
+        loop.default_exception_handler(context)
+
+    loop.set_exception_handler(_diagnose)
+
 import requests
 import websockets
 
@@ -492,9 +563,16 @@ async def _projection_selection_listener() -> None:
             retry_delay = min(retry_delay * 2, 15.0)
 
 
+async def _run_projection_selection_listener() -> None:
+    install_asyncio_connection_diagnostics(
+        asyncio.get_running_loop(), "projection selection WebSocket client"
+    )
+    await _projection_selection_listener()
+
+
 def _projection_selection_worker() -> None:
     try:
-        asyncio.run(_projection_selection_listener())
+        asyncio.run(_run_projection_selection_listener())
     except Exception as exc:
         print(f"[PROJECTION SYNC] Listener stopped: {exc}")
 

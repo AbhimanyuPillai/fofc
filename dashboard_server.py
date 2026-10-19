@@ -9,6 +9,7 @@ import collections
 from typing import Optional, List, Callable
 import requests
 import uvicorn
+import projection_bridge
 from pydantic import BaseModel
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse, Response
@@ -20,13 +21,30 @@ except ImportError:
     # If running from inside jarvis_vision directory
     from dashboard import app
 
+
+@app.middleware("http")
+async def remember_dashboard_request(request, call_next):
+    client = request.client
+    if client:
+        projection_bridge.remember_http_request(
+            (client.host, client.port), request.method, request.url.path
+        )
+    return await call_next(request)
+
+
 # Global state
 _current_state = "SLEEPING"
 _current_focus_board: Optional[str] = None
+_current_focus_product_id: Optional[int] = None
 _subscribers_lock = threading.Lock()
 _subscribers: List[queue.Queue] = []
 _terminal_history_lock = threading.Lock()
 _terminal_history = collections.deque(maxlen=150)
+_diagnostics_lock = threading.Lock()
+_diagnostics_events = collections.deque(maxlen=300)
+_diagnostics_metrics = {}
+_diagnostics_sequence = 0
+PROJECTION_BASE_URL = os.environ.get("VIDEO_PROJECTION_URL", "http://127.0.0.1:3000").rstrip("/")
 _is_server_active = False
 _server_thread: Optional[threading.Thread] = None
 
@@ -52,10 +70,35 @@ def _dispatch_remote_event(ev_dict: dict):
             pass
     threading.Thread(target=_post, daemon=True).start()
 
+def record_diagnostic(category: str, event: str, level: str = "info", details: Optional[dict] = None):
+    """Store a concise, non-sensitive operational event for the staff diagnostics page."""
+    global _diagnostics_sequence
+    now = time.time()
+    with _diagnostics_lock:
+        _diagnostics_sequence += 1
+        item = {
+            "sequence": _diagnostics_sequence,
+            "timestamp": now,
+            "category": str(category),
+            "event": str(event),
+            "level": str(level),
+            "details": dict(details or {}),
+        }
+        _diagnostics_events.append(item)
+    _broadcast_event({"type": "diagnostic", **item})
+
+def update_diagnostics_metrics(category: str, **values):
+    """Update a compact latest-value snapshot; high-rate metrics are not event-logged."""
+    with _diagnostics_lock:
+        _diagnostics_metrics[str(category)] = {**values, "updated_at": time.time()}
+
 def set_state(new_state: str):
     """Updates current agent state and notifies dashboard clients."""
     global _current_state
+    previous_state = _current_state
     _current_state = new_state
+    if previous_state != new_state:
+        record_diagnostic("agent", "state_changed", details={"from": previous_state, "to": new_state})
     ev = {"type": "state", "state": new_state, "timestamp": time.time()}
     _broadcast_event(ev)
     if not _is_server_active:
@@ -63,8 +106,12 @@ def set_state(new_state: str):
 
 def set_hardware_focus(board: Optional[str], product_id: Optional[int] = None):
     """Reports which catalog product is currently in focus on the dashboard."""
-    global _current_focus_board
+    global _current_focus_board, _current_focus_product_id
+    previous_board = _current_focus_board
     _current_focus_board = board
+    _current_focus_product_id = product_id
+    if previous_board != board:
+        record_diagnostic("board", "selection_changed", details={"board": board, "product_id": product_id})
     ev = {"type": "focus", "board": board, "productId": product_id, "timestamp": time.time()}
     _broadcast_event(ev)
     if not _is_server_active:
@@ -377,6 +424,42 @@ async def post_set_camera(payload: dict):
     rebind_backend_camera(stream, index)
     return {"status": "ok", "stream": stream, "index": index, "config": load_camera_config()}
 
+@app.post("/api/face_camera/status")
+async def post_face_camera_status(payload: dict):
+    """Receive browser camera lifecycle reports and expose them to diagnostics."""
+    state = str(payload.get("state", "unknown")).strip().lower()
+    allowed_states = {"starting", "ready", "failed", "ended", "frame_error"}
+    if state not in allowed_states:
+        raise HTTPException(status_code=400, detail="Invalid face camera state.")
+
+    device_name = str(payload.get("device_name") or "").strip()[:160]
+    error = str(payload.get("error") or "").strip()[:400]
+    fallback_active = bool(payload.get("fallback_active", False))
+    width = payload.get("width")
+    height = payload.get("height")
+    fps = payload.get("fps")
+    update_diagnostics_metrics(
+        "face_camera", state=state, device_name=device_name or "Unknown camera",
+        error=error or None, fallback_active=fallback_active,
+        frame_width=width, frame_height=height, fps=fps,
+    )
+
+    level = "warning" if state in {"failed", "ended", "frame_error"} else "info"
+    record_diagnostic("face_camera", f"camera_{state}", level=level, details={
+        "device_name": device_name or None,
+        "error": error or None,
+        "fallback_active": fallback_active,
+        "width": width,
+        "height": height,
+    })
+    summary = f"{state.upper()}"
+    if device_name:
+        summary += f" · {device_name}"
+    if error:
+        summary += f" · {error}"
+    print(f"[FACE CAMERA] {summary}")
+    return {"status": "ok", "state": state}
+
 @app.get("/api/camera_config")
 async def get_camera_config():
     return load_camera_config()
@@ -429,6 +512,38 @@ async def get_dashboard_status():
         "timestamp": time.time()
     }
 
+@app.get("/api/diagnostics")
+async def get_diagnostics(after: int = 0):
+    """Read current agent/device metrics and recent structured diagnostic events."""
+    with _diagnostics_lock:
+        metrics = {key: dict(value) for key, value in _diagnostics_metrics.items()}
+        events = [dict(item) for item in _diagnostics_events if item["sequence"] > after]
+        latest_sequence = _diagnostics_sequence
+    return {
+        "timestamp": time.time(),
+        "agent": {"state": _current_state, "focus_board": _current_focus_board,
+                  "product_id": _current_focus_product_id,
+                  **metrics.get("agent", {})},
+        "audio": metrics.get("audio", {}),
+        "pointing": metrics.get("pointing", {}),
+        "camera": metrics.get("face_camera", {}),
+        "camera_config": load_camera_config(),
+        "device_config": load_device_config(),
+        "events": events,
+        "latest_sequence": latest_sequence,
+    }
+
+@app.get("/api/diagnostics/projection")
+async def get_projection_diagnostics():
+    """Check projection availability server-side so the staff page avoids CORS assumptions."""
+    try:
+        response = requests.get(f"{PROJECTION_BASE_URL}/api/products", timeout=2.0)
+        response.raise_for_status()
+        products = response.json()
+        return {"available": True, "product_count": len(products) if isinstance(products, list) else 0}
+    except Exception as exc:
+        return {"available": False, "error": str(exc)}
+
 @app.get("/terminal_stream")
 async def get_terminal_stream():
     """Real-time SSE stream piping terminal logs, transcriptions, and state transitions."""
@@ -447,17 +562,20 @@ async def get_terminal_stream():
         for item in history_snapshot:
             yield f"data: {json.dumps(item)}\n\n"
 
+        last_heartbeat_at = time.monotonic()
         try:
             while True:
                 try:
-                    # Non-blocking async queue extraction
-                    ev = await asyncio.get_event_loop().run_in_executor(None, lambda: client_q.get(timeout=10.0))
-                    yield f"data: {json.dumps(ev)}\n\n"
+                    ev = client_q.get_nowait()
                 except queue.Empty:
-                    # Keep-alive heartbeat
-                    yield ": ping\n\n"
-        except (asyncio.CancelledError, GeneratorExit):
-            pass
+                    now = time.monotonic()
+                    if now - last_heartbeat_at >= 10.0:
+                        last_heartbeat_at = now
+                        yield ": ping\n\n"
+                    else:
+                        await asyncio.sleep(0.1)
+                    continue
+                yield f"data: {json.dumps(ev)}\n\n"
         finally:
             with _subscribers_lock:
                 if client_q in _subscribers:
@@ -486,7 +604,15 @@ def start_dashboard_server(host: str = "0.0.0.0", port: int = 8088):
     def _run():
         try:
             config = uvicorn.Config(app, host=host, port=port, log_level="warning", access_log=False)
-            server = uvicorn.Server(config)
+
+            class DiagnosticServer(uvicorn.Server):
+                async def serve(self, sockets=None):
+                    projection_bridge.install_asyncio_connection_diagnostics(
+                        asyncio.get_running_loop(), f"dashboard/face ASGI server {host}:{port}"
+                    )
+                    await super().serve(sockets=sockets)
+
+            server = DiagnosticServer(config)
             print(f"[DASHBOARD] Unified Face Cam & Terminal Server active at http://{host}:{port}")
             server.run()
         except Exception as e:

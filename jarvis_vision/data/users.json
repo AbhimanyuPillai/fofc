@@ -5,8 +5,9 @@
     "role": "staff",
     "pronunciation": "abhee",
     "custom_greeting": "Hey Abhi! What's up!",
+    "returning_greeting": "Welcome back Abhi! What do you like to know?",
     "registered_at": "2026-10-12T10:51:02.670218Z",
-    "updated_at": "2026-10-12T10:51:02.670218Z"
+    "updated_at": "2026-10-19T08:51:40.244211Z"
   },
   "madhur": {
     "user_id": "madhur",
@@ -16,5 +17,14 @@
     "custom_greeting": "Hey madhur! What's Up!",
     "registered_at": "2026-10-12T10:59:38.726563Z",
     "updated_at": "2026-10-12T10:59:38.726563Z"
+  },
+  "yogesh": {
+    "user_id": "yogesh",
+    "display_name": "Yogesh",
+    "role": "visitor",
+    "pronunciation": "Yaugaysh",
+    "custom_greeting": "Hello yaugaysh",
+    "registered_at": "2026-10-15T12:56:32.054668Z",
+    "updated_at": "2026-10-15T12:56:32.054668Z"
   }
 }

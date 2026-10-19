@@ -160,6 +160,20 @@
       stroke: var(--text-secondary);
     }
 
+    .camera-state-chip {
+      margin-left: 0.25rem;
+      padding: 0.12rem 0.38rem;
+      border: 1px solid #3a3a3a;
+      border-radius: 4px;
+      color: #9ca3af;
+      font: 600 0.62rem 'JetBrains Mono', monospace;
+      letter-spacing: 0.02em;
+      text-transform: none;
+    }
+    .camera-state-chip[data-state="ready"] { color: #34d399; border-color: #065f46; }
+    .camera-state-chip[data-state="failed"], .camera-state-chip[data-state="ended"], .camera-state-chip[data-state="frame_error"] { color: #fb7185; border-color: #7f1d1d; }
+    .camera-state-chip[data-state="starting"] { color: #fbbf24; border-color: #78350f; }
+
     .pane-controls {
       display: flex;
       align-items: center;
@@ -739,6 +753,7 @@
               <path d="M5.5 21a8.38 8.38 0 0 1 13 0"></path>
             </svg>
             FACECAM
+            <span id="face-camera-status" class="camera-state-chip" data-state="starting" title="Waiting for browser camera startup">STARTING</span>
           </div>
           <div class="pane-controls">
             <button id="toggle-admin-face" class="admin-toggle-btn" type="button" title="User registration and phonetic override controls">[ Edit Admin Options ]</button>
@@ -776,6 +791,10 @@
             <div class="admin-row">
               <label class="admin-label">Custom Greeting Message</label>
               <input type="text" id="admin-face-greeting" class="admin-input" placeholder="e.g. Hey Madhur! Good to see you.">
+            </div>
+            <div class="admin-row">
+              <label class="admin-label">Returning Greeting (after 5 minutes)</label>
+              <input type="text" id="admin-face-returning-greeting" class="admin-input" placeholder="e.g. Welcome back, Madhur!">
             </div>
             <div class="admin-row admin-actions-row">
               <button id="btn-new-face-user" class="admin-btn" type="button">[ New User ]</button>
@@ -1270,12 +1289,13 @@
 
     // Camera device IDs are scoped to each iframe's origin, so the iframe that
     // owns the camera stream reports its own list to the parent dashboard.
-    function notifyIframe(iframe, deviceId) {
+    function notifyIframe(iframe, deviceId, deviceLabel = '') {
       if (!iframe || !iframe.contentWindow) return;
       try {
         iframe.contentWindow.postMessage({
           type: 'CHANGE_CAMERA',
-          deviceId: deviceId
+          deviceId: deviceId,
+          deviceLabel
         }, '*');
       } catch (e) {
         console.warn("Could not postMessage to iframe:", e);
@@ -1330,15 +1350,27 @@
 
       // Re-select a persisted camera when it is available, or choose the
       // iframe's active/default camera when a saved device has disappeared.
-      if (selectedId !== activeDeviceId) notifyIframe(iframe, selectedId);
+      if (selectedId !== activeDeviceId) notifyIframe(iframe, selectedId, selectedDevice?.label || '');
     }
 
     window.addEventListener('message', (event) => {
       const data = event.data;
-      if (!data || data.type !== 'CAMERA_DEVICES') return;
+      if (!data) return;
 
       const faceFrame = document.getElementById('iframe-face');
       const handFrame = document.getElementById('iframe-point');
+      if (data.type === 'FACE_CAMERA_STATUS') {
+        if (!faceFrame || event.source !== faceFrame.contentWindow) return;
+        const chip = document.getElementById('face-camera-status');
+        if (chip) {
+          const labels = { starting: 'STARTING', ready: data.fallback_active ? 'READY · FALLBACK' : 'READY', failed: 'FAILED', ended: 'DISCONNECTED', frame_error: 'FRAME ERROR' };
+          chip.textContent = labels[data.state] || String(data.state || 'UNKNOWN').toUpperCase();
+          chip.dataset.state = data.state || 'unknown';
+          chip.title = [data.device_name, data.error].filter(Boolean).join(' · ') || 'Face camera status';
+        }
+        return;
+      }
+      if (data.type !== 'CAMERA_DEVICES') return;
       const expectedFrame = data.stream === 'facecam' ? faceFrame
         : data.stream === 'handcam' ? handFrame : null;
       if (!expectedFrame || event.source !== expectedFrame.contentWindow) return;
@@ -1429,7 +1461,7 @@
           const label = opt ? opt.textContent : "";
           localStorage.setItem('facecam_device', devId);
           localStorage.setItem('facecam_label', label);
-          notifyIframe(iframe1, devId);
+          notifyIframe(iframe1, devId, label);
         });
       }
 
@@ -1516,6 +1548,7 @@
       const faceRole = document.getElementById('admin-face-role');
       const facePron = document.getElementById('admin-face-pronunciation');
       const faceGreeting = document.getElementById('admin-face-greeting');
+      const faceReturningGreeting = document.getElementById('admin-face-returning-greeting');
       const sampleGrid = document.getElementById('face-sample-grid');
       const registerButton = document.getElementById('btn-register-face');
       const samples = Array(5).fill(null);
@@ -1599,6 +1632,7 @@
         if (faceRole) faceRole.value = 'visitor';
         if (facePron) facePron.value = '';
         if (faceGreeting) faceGreeting.value = '';
+        if (faceReturningGreeting) faceReturningGreeting.value = '';
         samples.fill(null); renderSamples();
         const updateButton = document.getElementById('btn-update-face-profile');
         if (updateButton) updateButton.disabled = true;
@@ -1613,7 +1647,7 @@
         try {
           const response = await fetch(`http://127.0.0.1:8088/api/users/${encodeURIComponent(editingUserId)}`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ display_name: displayName, role: faceRole?.value || 'visitor', pronunciation: (facePron?.value || '').trim(), custom_greeting: (faceGreeting?.value || '').trim() })
+            body: JSON.stringify({ display_name: displayName, role: faceRole?.value || 'visitor', pronunciation: (facePron?.value || '').trim(), custom_greeting: (faceGreeting?.value || '').trim(), returning_greeting: (faceReturningGreeting?.value || '').trim() })
           });
           const result = await response.json();
           if (!response.ok) throw new Error(result.detail || `HTTP ${response.status}`);
@@ -1752,7 +1786,8 @@
           type: 'REGISTER_FACE_SAMPLES', userId, displayName,
           role: faceRole?.value || 'visitor',
           pronunciation: (facePron?.value || '').trim(),
-          customGreeting: (faceGreeting?.value || '').trim(), samples
+          customGreeting: (faceGreeting?.value || '').trim(),
+          returningGreeting: (faceReturningGreeting?.value || '').trim(), samples
         }, '*');
       });
 
@@ -1783,6 +1818,7 @@
               if (faceRole) faceRole.value = user.role || 'visitor';
               if (facePron) facePron.value = user.pronunciation || '';
               if (faceGreeting) faceGreeting.value = user.custom_greeting || '';
+              if (faceReturningGreeting) faceReturningGreeting.value = user.returning_greeting || '';
               const updateButton = document.getElementById('btn-update-face-profile');
               if (updateButton) updateButton.disabled = false;
               if (faceFeedback) faceFeedback.textContent = `[Editing ${user.display_name || user.user_id}. Update details here, or capture five more samples and confirm enrollment.]`;
