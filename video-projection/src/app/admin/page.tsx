@@ -11,6 +11,7 @@ type Product = {
     videoUrl: string;
     images: string[];
     specs: string[];
+    aliases: string[];
 };
 
 export default function AdminPage() {
@@ -27,7 +28,10 @@ export default function AdminPage() {
             try {
                 const res = await fetch("/api/products", {cache: "no-store"});
                 const data = await res.json();
-                setProducts(data);
+                setProducts(Array.isArray(data) ? data.map((product) => ({
+                    ...product,
+                    aliases: Array.isArray(product.aliases) ? product.aliases : [],
+                })) : []);
             } catch (e) {
                 console.error(e);
             } finally {
@@ -128,6 +132,7 @@ export default function AdminPage() {
                 videoUrl: "",
                 images: [],
                 specs: [],
+                aliases: [],
             },
         ]);
     };
@@ -233,6 +238,17 @@ export default function AdminPage() {
                                     rows={3}
                                     className="w-full bg-gray-950 border border-cyan-900/60 focus:border-cyan-500 rounded px-2 py-2 text-cyan-100 outline-none"
                                 />
+                            </label>
+                            <label className="space-y-1 col-span-2">
+                                <div className="text-cyan-300">Speech aliases</div>
+                                <textarea
+                                    value={(p.aliases || []).join("\n")}
+                                    onChange={(e) => updateField(i, "aliases", e.target.value.split(/\r?\n/).map((alias) => alias.trim()).filter(Boolean))}
+                                    rows={2}
+                                    placeholder="One recognized name per line"
+                                    className="w-full bg-gray-950 border border-cyan-900/60 focus:border-cyan-500 rounded px-2 py-2 text-cyan-100 outline-none"
+                                />
+                                <p className="text-xs text-cyan-400/60">Alternate names the visitor might say; enter one per line.</p>
                             </label>
                         </div>
 

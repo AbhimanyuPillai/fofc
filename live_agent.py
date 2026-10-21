@@ -467,19 +467,21 @@ def handle_video_request(text: str, source: str) -> bool:
 
     Returns True if handled (skips Ollama LLM), False if not a video request.
     """
-    intent = projection_bridge.detect_video_intent(text)
+    controller = video_playback_controller.video_controller
+    control_intent = controller.evaluate_standby_speech(text)
+    intent = control_intent or projection_bridge.detect_video_intent(text)
     if not intent:
         return False
+
+    # Keep pause, stop, and resume on the same strict wake-prefixed command
+    # grammar in both active playback standby and normal conversation mode.
+    if intent in ("pause", "stop", "resume") and control_intent != intent:
+        return False
+
     dashboard_server.record_diagnostic("playback", "command_detected", details={"action": intent, "source": source})
 
-    # For pause, stop, and resume: require the wake word ("Hey Repos") as specified by safety rules
+    # For pause, stop, and resume the strict parser above requires the wake phrase.
     if intent in ("pause", "stop", "resume"):
-        cleaned = " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
-        has_wake = bool(re.search(r"(?:\b(?:hey|hay|ay)\s+(?:repos|repose|raypos|repo|ripples|rappos)\b|\brepos\b)", cleaned))
-        if not has_wake:
-            return False  # General instruction without wake word; do not trigger pause/stop/resume
-
-        controller = video_playback_controller.video_controller
         if intent == "pause" and not controller.is_active():
             msg = "There isn't a demo video playing right now."
             speak_direct(msg, allow_interrupt=False)

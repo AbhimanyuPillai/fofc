@@ -369,23 +369,6 @@ _started = False
 _selection_callback = None
 _selection_callback_lock = threading.Lock()
 
-# Likely speech-to-text renderings for the current table labels. Keep these
-# keyed by the normalized product name so catalog IDs remain dynamic. New
-# products can also provide an `aliases` list in their product metadata.
-SPOKEN_NAME_ALIASES = {
-    "smart c": {"smart see", "smart sea"},
-    "r cam": {"are cam", "our cam"},
-    "r atg ultrasonic": {"r a t g ultrasonic", "are a t g ultrasonic"},
-    "is barrier": {"i s barrier", "ice barrier"},
-    "r atg capacitance": {"r a t g capacitance", "are a t g capacitance"},
-    "one sync": {"onesync", "one sink", "1 sync", "1sync", "1 sink", "one six"},
-    "data link": {"data lynk", "data link board"},
-    "fire shield": {"fire sheild", "fire shield board"},
-    "rfid": {"r f i d", "are f i d"},
-    "secure fueling": {"secure fuelling"},
-}
-
-
 def refresh_product_catalog() -> bool:
     """Refresh board names, descriptions, and media paths from the projection app."""
     try:
@@ -591,8 +574,6 @@ def _product_aliases(product: Dict[str, Any]) -> set[str]:
     compact = re.sub(r"[^a-z0-9]+", "", name.lower())
     if len(compact) >= 5:
         aliases.add(compact)
-    normalized = re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
-    aliases.update(SPOKEN_NAME_ALIASES.get(normalized, set()))
     return {re.sub(r"\s+", " ", alias.lower()).strip() for alias in aliases if alias}
 
 

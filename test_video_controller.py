@@ -37,11 +37,15 @@ test_cases = [
     ("hey repos pause the video", "pause"),
     ("hey repos pause", "pause"),
     ("hey repos please pause the demo", "pause"),
+    ("hey repos could you please pause the playback", "pause"),
+    ("hay repos freeze", "pause"),
+    ("ay repos hold on", "pause"),
     ("hey repos stop the video", "stop"),
     ("hey repos stop", "stop"),
     ("hey repos stop playback", "stop"),
     ("repos pause", "pause"),
-    ("repos stop", "stop"),
+    ("hey repose stop the demo", "stop"),
+    ("hey repos close the demo", "stop"),
     ("hey repos resume the video", "resume"),
     ("hey repos resume", "resume"),
     ("hey repos continue the demo", "resume"),
@@ -49,6 +53,10 @@ test_cases = [
     ("pause the video", None),  # General instruction without wake word
     ("stop the video", None),   # General instruction without wake word
     ("resume the video", None), # General instruction without wake word
+    ("pause the video, repos", None),  # Wake phrase must be first
+    ("I heard hey repos pause the video", None),  # Incidental mention
+    ("hey repos, don't pause the video", None),  # Negated command
+    ("hey repos, I might pause the video later", None),  # Not a direct command
     ("can you explain to me what one sync does?", None),
     ("the smart c throttle controller prevents runaway", None),
     ("what is the price of this board", None),

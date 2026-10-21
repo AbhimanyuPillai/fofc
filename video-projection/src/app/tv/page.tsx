@@ -2,6 +2,7 @@
 
 import {useState, useEffect, useRef} from 'react';
 import {motion, AnimatePresence} from 'framer-motion';
+import {Hand, Mic, Play} from 'lucide-react';
 import FullscreenToggle from "@/components/ui/FullscreenToggle";
 import {getDynamicAssetPath} from '@/utils/dynamicAssetPath';
 
@@ -25,7 +26,6 @@ export default function TVDisplay() {
     const [isConnected, setIsConnected] = useState(false);
     const [animationsEnabled, setAnimationsEnabled] = useState(true);
     const [userInteracted, setUserInteracted] = useState(true);
-    const [lanIp, setLanIp] = useState<string | null>(null);
     // Hydration guard to avoid SSR/CSR text mismatches
     const [hydrated, setHydrated] = useState(false);
     // Device/connection status UI state
@@ -221,7 +221,7 @@ export default function TVDisplay() {
                 return out;
             });
             i++;
-        }, 500); // Reduced frequency from 200ms to 500ms
+        }, 2000); // Keep decorative log updates from forcing frequent full-screen renders
 
         return () => {
             if (logTickRef.current) {
@@ -316,23 +316,6 @@ export default function TVDisplay() {
         };
     }, []);
 
-    // Fetch LAN IP periodically for display instructions
-    useEffect(() => {
-        let iv: ReturnType<typeof setInterval> | null = null;
-        const fetchIp = async () => {
-            try {
-                const res = await fetch('/api/ip', { cache: 'no-store' });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data?.ip) setLanIp(data.ip);
-                }
-            } catch {}
-        };
-        fetchIp();
-        iv = setInterval(fetchIp, 60000); // Reduced from 30s to 60s
-        return () => { if (iv) clearInterval(iv); };
-    }, []);
-
     // Derived metrics for animated UI
     const heapTotal = jsHeap.total && jsHeap.total > 0 ? jsHeap.total : undefined;
     const heapUsed = jsHeap.used && jsHeap.used > 0 ? jsHeap.used : undefined;
@@ -340,22 +323,12 @@ export default function TVDisplay() {
     const storagePct = storageEstimate.usage && storageEstimate.quota ? Math.min(100, Math.max(0, Math.round((storageEstimate.usage / storageEstimate.quota) * 100))) : undefined;
     const batteryPct = battery ? Math.round(battery.level * 100) : undefined;
 
-    // Interpolate display values toward targets for small, smooth changes
+    // Metric bars already use CSS transitions, so keep their displayed values
+    // in sync with telemetry without a per-frame React render loop.
     useEffect(() => {
-        let raf: number | null = null;
-        let last = performance.now();
-        const step = () => {
-            const now = performance.now();
-            const dt = Math.min(200, now - last);
-            last = now;
-            const k = 0.2; // easing factor per tick
-            if (heapPct !== undefined) setDisplayHeapPct(prev => prev + (heapPct - prev) * k);
-            if (storagePct !== undefined) setDisplayStoragePct(prev => prev + (storagePct - prev) * k);
-            if (batteryPct !== undefined) setDisplayBatteryPct(prev => prev + (batteryPct - prev) * k);
-            raf = requestAnimationFrame(step);
-        };
-        raf = requestAnimationFrame(step);
-        return () => { if (raf) cancelAnimationFrame(raf); };
+        if (heapPct !== undefined) setDisplayHeapPct(heapPct);
+        if (storagePct !== undefined) setDisplayStoragePct(storagePct);
+        if (batteryPct !== undefined) setDisplayBatteryPct(batteryPct);
     }, [heapPct, storagePct, batteryPct]);
 
     // Update dynamic binary line based on live UI metrics (only when animations are on)
@@ -620,7 +593,7 @@ export default function TVDisplay() {
                     {/* OS Interface Elements */}
                     <div className={`absolute inset-0 ${shouldRenderAnimations ? 'animate-os-elements' : ''}`}>
                         {/* Terminal windows */}
-                        <div className="absolute top-15 left-12 w-68 h-46 border border-cyan-400/40 bg-black/60">
+                        <div className="absolute top-15 left-12 hidden h-46 w-68 border border-cyan-400/40 bg-black/60 lg:block">
                             <div ref={logRef} className="relative p-2 terminal-log terminal-scroll pb-5">
                                 {logLines.map((l, idx) => (
                                     <div key={idx} className="terminal-line">{l}</div>
@@ -631,7 +604,7 @@ export default function TVDisplay() {
                             </div>
                         </div>
 
-                        <div className="absolute bottom-12 right-12 w-60 h-52 border border-emerald-400/40 bg-black/60">
+                        <div className="absolute bottom-12 right-12 hidden h-52 w-60 border border-emerald-400/40 bg-black/60 lg:block">
                             <div className="p-2 text-[10px] font-mono text-emerald-300/80 space-y-1">
                                 {/* Online + WS */}
                                 <div className="flex items-center justify-between">
@@ -798,40 +771,9 @@ export default function TVDisplay() {
                 <FullscreenToggle autoFullscreen={true}/>
             </div>
 
-            {/* LAN IP / Admin URL hint - TV only (bottom-left) */}
-            <div className="fixed bottom-4 left-4 z-50">
-                <div className="px-3 py-2 rounded-md bg-black/10 border border-cyan-200/30 text-cyan-200 text-xs md:text-sm shadow">
-                    {lanIp ? (
-                        <div>
-                            <div className="font-semibold text-cyan-300">Admin Access</div>
-                            <div>http://{lanIp}:3000/admin</div>
-                        </div>
-                    ) : (
-                        <div className="flex items-center gap-2">
-                            <div className="w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-                            <div>Detecting IP…</div>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* Connection Status */}
-            <div className="absolute top-4 right-4 z-50">
-                <div className={`flex items-center space-x-2 px-3 py-1 rounded-full text-xs ${
-                    isConnected
-                        ? 'bg-green-500/20 border border-green-500/30 text-green-400'
-                        : 'bg-red-500/20 border border-red-500/30 text-red-400'
-                }`}>
-                    <div className={`w-2 h-2 rounded-full ${
-                        isConnected ? 'bg-green-400' : 'bg-red-400'
-                    }`}/>
-                    <div>{isConnected ? 'CONNECTED' : 'DISCONNECTED'}</div>
-                </div>
-            </div>
-
             {/* Main Video Display */}
             <div
-                className="relative z-10 min-h-screen flex items-center justify-center"
+                className="relative z-10 min-h-screen flex items-center justify-center lg:px-80"
                 onClick={() => {
                     if (!userInteracted && videoRef.current) {
                         setUserInteracted(true);
@@ -913,6 +855,22 @@ export default function TVDisplay() {
                     </motion.div>
                 )}
 
+                {isPlaying && (
+                    <motion.div
+                        initial={{opacity: 0, y: 12}}
+                        animate={{opacity: 1, y: 0}}
+                        transition={{duration: 0.25}}
+                        className="pointer-events-none absolute bottom-6 left-1/2 z-30 -translate-x-1/2"
+                        aria-live="polite"
+                    >
+                        <div className="flex max-w-[90vw] flex-wrap items-center justify-center gap-2 rounded-full border border-white/15 bg-black/65 px-4 py-2 text-center text-xs text-white/90 shadow-lg backdrop-blur-sm sm:text-sm">
+                            <span className="font-semibold text-cyan-200">Voice controls</span>
+                            <span className="text-white/50">·</span>
+                            <span>Say “Hey Repos, pause video” or “Hey Repos, stop video”</span>
+                        </div>
+                    </motion.div>
+                )}
+
                 {!isPlaying && <AnimatePresence mode="wait">
                     {currentVideo ? (
                         <motion.div
@@ -985,7 +943,7 @@ export default function TVDisplay() {
                             animate={{opacity: 1}}
                             exit={{opacity: 0}}
                             transition={{duration: 0.2}} // Faster transition
-                            className="text-center"
+                            className="w-full max-w-3xl text-center"
                             style={{
                                 willChange: 'opacity',
                                 backfaceVisibility: 'hidden'
@@ -999,10 +957,48 @@ export default function TVDisplay() {
                                         className={`w-6 h-6 bg-cyan-400 rounded-full ${shouldRenderAnimations ? 'animate-pulse' : ''}`}/>
                                 </div>
                             </div>
-                            <h2 className="text-3xl text-cyan-400 font-bold mb-4">{"Welcome Let\'s Connect with Repos OS"}</h2>
+                            <h2 className="text-3xl text-cyan-400 font-bold mb-4">Welcome to REPOS AI</h2>
                             <p className="text-cyan-300/70 text-lg mb-4">
-                                {isConnected ? 'Ready for video playback' : 'Connecting to main device...'}
+                                {isConnected ? 'Experience Future of Fueling' : 'Connecting to main device...'}
                             </p>
+
+                            {isConnected && (
+                                <div className="mx-auto mt-4 grid w-full max-w-3xl grid-cols-1 gap-4 px-6 text-left xl:grid-cols-2">
+                                    <div className="rounded-none border border-cyan-200/15 bg-slate-900/55 px-5 py-4 font-mono backdrop-blur-md">
+                                        <div className="mb-1 flex items-center gap-3">
+                                            <span className="flex h-8 w-8 items-center justify-center border border-cyan-200/15 bg-cyan-300/10 text-cyan-200" aria-hidden="true">
+                                                <Hand className="h-4 w-4 -rotate-12" strokeWidth={1.7} />
+                                            </span>
+                                            <h3 className="text-sm font-bold text-cyan-400">Point to explore</h3>
+                                        </div>
+                                        <p className="pl-[52px] text-sm leading-relaxed text-cyan-300/80">
+                                            Point at any board to select it. Repos will identify the board, switch the conversation to it, and give you a short introduction. Point to another board anytime to switch.
+                                        </p>
+                                    </div>
+                                    <div className="rounded-none border border-cyan-200/15 bg-slate-900/55 px-5 py-4 font-mono backdrop-blur-md">
+                                        <div className="mb-1 flex items-center gap-3">
+                                            <span className="flex h-8 w-8 items-center justify-center border border-cyan-200/15 bg-cyan-300/10 text-cyan-200" aria-hidden="true">
+                                                <Mic className="h-4 w-4" strokeWidth={1.7} />
+                                            </span>
+                                            <h3 className="text-sm font-bold text-cyan-400">Ask by voice</h3>
+                                        </div>
+                                        <p className="pl-[52px] text-sm leading-relaxed text-cyan-300/80">
+                                            Ask about the selected board, then follow up naturally. For example: <span className="text-cyan-200">“What does this board do?”</span>
+                                        </p>
+                                    </div>
+                                    <div className="rounded-none border border-cyan-200/15 bg-slate-900/55 px-5 py-4 font-mono backdrop-blur-md xl:col-span-2 xl:w-1/2 xl:justify-self-center">
+                                        <div className="mb-1 flex items-center gap-3">
+                                            <span className="flex h-8 w-8 items-center justify-center border border-cyan-200/15 bg-cyan-300/10 text-cyan-200" aria-hidden="true">
+                                                <Play className="ml-0.5 h-4 w-4" strokeWidth={1.7} />
+                                            </span>
+                                            <h3 className="text-sm font-bold text-cyan-400">Watch a demo</h3>
+                                        </div>
+                                        <p className="pl-[52px] text-sm leading-relaxed text-cyan-300/80">
+                                            Swipe up on the selected board in the showcase, or ask Repos to play its demo video. It will play on this screen.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
 
                             <div className="mt-8 flex items-center justify-center space-x-2">
                                 <div
