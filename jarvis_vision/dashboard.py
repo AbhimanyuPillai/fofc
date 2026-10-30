@@ -338,7 +338,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
       <!-- Controls below camera -->
       <div id="enrollCameraCtrls" style="display: none; gap: 0.75rem;">
-        <button id="snapBtn" class="btn-primary" style="flex: 1;">📸 Capture Snapshot (Need 3-5)</button>
+        <button id="snapBtn" class="btn-primary" style="flex: 1;">📸 Capture Snapshot (10 remaining)</button>
         <button id="clearSnapsBtn" class="btn-secondary">Clear</button>
       </div>
 
@@ -621,8 +621,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const returningGreeting = (e.data.returningGreeting || '').trim();
         const userId = (e.data.userId || '').trim();
         const snaps = Array.isArray(e.data.samples) ? e.data.samples.filter(blob => blob instanceof Blob) : [];
-        if (!displayName || !userId || snaps.length !== 5) {
-          window.parent?.postMessage({ type: 'REGISTER_RESULT', success: false, error: 'Name, user ID, and all five photo samples are required.' }, '*');
+        if (!displayName || !userId || snaps.length !== 10) {
+          window.parent?.postMessage({ type: 'REGISTER_RESULT', success: false, error: 'Name, user ID, and all ten photo samples are required.' }, '*');
           return;
         }
         const fd = new FormData();
@@ -763,6 +763,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     // Snapshot Capture
     snapBtn.addEventListener('click', () => {
+      if (capturedBlobs.length >= 10) return;
       if (!webcam.videoWidth) return;
       const c = document.createElement('canvas');
       c.width = webcam.videoWidth;
@@ -772,19 +773,23 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       c.toBlob(blob => {
         if (!blob) return;
         capturedBlobs.push(blob);
+        snapBtn.textContent = capturedBlobs.length >= 10 ? '📸 10 Samples Captured' : `📸 Capture Snapshot (${10 - capturedBlobs.length} remaining)`;
+        snapBtn.disabled = capturedBlobs.length >= 10;
         renderThumbnails();
       }, 'image/jpeg', 0.95);
     });
 
     clearSnapsBtn.addEventListener('click', () => {
       capturedBlobs = [];
+      snapBtn.disabled = false;
+      snapBtn.textContent = '📸 Capture Snapshot (10 remaining)';
       renderThumbnails();
     });
 
     function renderThumbnails() {
       thumbStrip.innerHTML = '';
       if (capturedBlobs.length === 0) {
-        thumbStrip.innerHTML = `<div style="font-size: 0.75rem; color: var(--text-muted); display:flex; align-items:center;">No snapshots. Click Capture 3-5 times.</div>`;
+        thumbStrip.innerHTML = `<div style="font-size: 0.75rem; color: var(--text-muted); display:flex; align-items:center;">No snapshots. Capture ten samples to enroll.</div>`;
         return;
       }
       capturedBlobs.forEach((blob, idx) => {
@@ -798,6 +803,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         delBtn.onclick = (e) => {
           e.stopPropagation();
           capturedBlobs.splice(idx, 1);
+          snapBtn.disabled = false;
+          snapBtn.textContent = `📸 Capture Snapshot (${10 - capturedBlobs.length} remaining)`;
           renderThumbnails();
         };
         card.appendChild(img);
@@ -815,8 +822,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const customGreeting = document.getElementById('customGreeting').value.trim();
       const returningGreeting = document.getElementById('returningGreeting').value.trim();
 
-      if (capturedBlobs.length === 0) {
-        showToast('Please capture at least 2-3 snapshots!', 'error');
+      if (capturedBlobs.length !== 10) {
+        showToast(`Please capture all 10 samples (currently ${capturedBlobs.length}).`, 'error');
         return;
       }
 
@@ -834,6 +841,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         if (res.ok) {
           showToast(`Enrolled ${displayName} successfully!`, 'success');
           capturedBlobs = [];
+          snapBtn.disabled = false;
+          snapBtn.textContent = '📸 Capture Snapshot (10 remaining)';
           renderThumbnails();
           regForm.reset();
           loadGallery();

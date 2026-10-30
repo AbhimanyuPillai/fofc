@@ -376,43 +376,12 @@ def get_active_pointed_context() -> Optional[str]:
         product_id = current_pointed_product_id
     if not board_name:
         return None
-
-    product = projection_bridge.get_product(product_id)
-    if product:
-        description = str(product.get("description") or "").strip()
-        category = str(product.get("category") or "").strip()
-        raw_specs = product.get("specs") or []
-        if isinstance(raw_specs, (list, tuple)):
-            specs = [str(item).strip() for item in raw_specs if str(item).strip()]
-        elif isinstance(raw_specs, str) and raw_specs.strip():
-            specs = [raw_specs.strip()]
-        else:
-            specs = []
-        details = []
-        details.append(f"Product name: {board_name}.")
-        if category:
-            details.append(f"Category: {category}.")
-        if description:
-            details.append(f"Catalog description: {description}")
-        else:
-            details.append("Catalog description: none provided.")
-        if specs:
-            details.append("Listed specifications: " + "; ".join(specs) + ".")
-        else:
-            details.append("Listed specifications: none provided.")
-        product_context = " ".join(details)
-        return (
-            f"[Active Table Context: The visitor is asking about or pointing to {board_name} (product ID {product_id}). "
-            f"The following catalog fields are the complete source of truth for claims about this board: {product_context} "
-            "For board-specific questions, answer only from those fields. If a requested value or fact is absent, say it is not specified; never infer or guess it. "
-            "If useful, add a clearly labeled general explanation, while stating that it is not confirmed for this board. "
-            "Explain supported information in plain language. "
-            "Unless they explicitly ask about a different board, ground your answer in this board.]"
-        )
-
     return (
-        f"[Active Table Context: The visitor is asking about or pointing to {board_name}. "
-        "Unless they explicitly ask about a different board, ground your answer in this board.]"
+        f"[Active Table Context: The visitor is asking about or pointing to {board_name} (software product ID {product_id}). "
+        "Use this only to identify which product the visitor means. For all technical and product facts, use only the approved product information in agent_instructions.md. "
+        "Ignore catalog descriptions, categories, and specifications as sources of product facts. "
+        "If the requested information is not in agent_instructions.md, use its exact fallback sentence. "
+        "Unless the visitor explicitly asks about a different product, ground your answer in the identified product.]"
     )
 
 

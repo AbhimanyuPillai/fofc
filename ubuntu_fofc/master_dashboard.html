@@ -799,7 +799,7 @@
             <div class="admin-row admin-actions-row">
               <button id="btn-new-face-user" class="admin-btn" type="button">[ New User ]</button>
               <button id="btn-update-face-profile" class="admin-btn" type="button" disabled>[ Update Profile ]</button>
-            <button id="btn-capture-face" class="admin-btn" type="button">[ Capture 5 Samples ]</button>
+            <button id="btn-capture-face" class="admin-btn" type="button">[ Capture 10 Samples ]</button>
             <button id="btn-register-face" class="admin-btn admin-btn-primary" type="button" disabled>[ Confirm & Register ]</button>
               <span id="admin-face-feedback" class="admin-feedback"></span>
             </div>
@@ -1551,8 +1551,8 @@
       const faceReturningGreeting = document.getElementById('admin-face-returning-greeting');
       const sampleGrid = document.getElementById('face-sample-grid');
       const registerButton = document.getElementById('btn-register-face');
-      const samples = Array(5).fill(null);
-      const sampleUrls = Array(5).fill(null);
+      const samples = Array(10).fill(null);
+      const sampleUrls = Array(10).fill(null);
       const pendingSamples = new Map();
       let registeredUserIds = new Set();
       let editingUserId = null;
@@ -1760,13 +1760,13 @@
         const button = document.getElementById('btn-capture-face');
         if (button) button.disabled = true;
         for (let i = 0; i < samples.length; i++) {
-          if (faceFeedback) faceFeedback.textContent = `[Capturing sample ${i + 1} of 5…]`;
+          if (faceFeedback) faceFeedback.textContent = `[Capturing sample ${i + 1} of ${samples.length}…]`;
           try { samples[i] = await captureSample(i); renderSamples(); }
           catch (err) { if (faceFeedback) faceFeedback.textContent = `[Capture stopped: ${err.message}]`; break; }
           if (i < samples.length - 1) await new Promise(resolve => setTimeout(resolve, 650));
         }
         if (button) button.disabled = false;
-        if (faceFeedback && samples.every(Boolean)) faceFeedback.textContent = '[Review the five images, retake or remove any, then register.]';
+        if (faceFeedback && samples.every(Boolean)) faceFeedback.textContent = '[Review the ten images, retake or remove any, then register.]';
       });
 
       function generatedUserId(name) {
@@ -1775,11 +1775,11 @@
       registerButton?.addEventListener('click', () => {
         const displayName = (faceName?.value || '').trim();
         if (!displayName) { if (faceFeedback) faceFeedback.textContent = '[Display name is required.]'; return; }
-        if (samples.some(sample => !sample)) { if (faceFeedback) faceFeedback.textContent = '[Capture all five samples before registering.]'; return; }
+        if (samples.some(sample => !sample)) { if (faceFeedback) faceFeedback.textContent = '[Capture all ten samples before registering.]'; return; }
         const userId = (faceUserId?.value || '').trim() || generatedUserId(displayName);
         const isExistingProfile = registeredUserIds.has(userId.toLowerCase());
         if (faceFeedback) faceFeedback.textContent = isExistingProfile
-          ? '[Updating this profile and adding the five new samples…]'
+          ? '[Updating this profile and adding the ten new samples…]'
           : '[Saving face samples…]';
         registerButton.disabled = true;
         faceFrame?.contentWindow?.postMessage({
@@ -1821,7 +1821,7 @@
               if (faceReturningGreeting) faceReturningGreeting.value = user.returning_greeting || '';
               const updateButton = document.getElementById('btn-update-face-profile');
               if (updateButton) updateButton.disabled = false;
-              if (faceFeedback) faceFeedback.textContent = `[Editing ${user.display_name || user.user_id}. Update details here, or capture five more samples and confirm enrollment.]`;
+              if (faceFeedback) faceFeedback.textContent = `[Editing ${user.display_name || user.user_id}. Update details here, or capture ten more samples and confirm enrollment.]`;
             });
             const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'admin-btn admin-btn-danger'; remove.textContent = 'Delete';
             remove.addEventListener('click', async () => {

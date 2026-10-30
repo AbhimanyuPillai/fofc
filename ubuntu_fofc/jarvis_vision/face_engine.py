@@ -23,7 +23,7 @@ class FaceEngine:
         db: Optional[UserDatabase] = None,
         models_dir: Optional[str] = None,
         match_threshold: float = 0.38,
-        score_threshold: float = 0.6,
+        score_threshold: float = 0.7,
         nms_threshold: float = 0.3,
         initial_input_size: Tuple[int, int] = (640, 480)
     ):
@@ -161,6 +161,8 @@ class FaceEngine:
             for face in faces:
                 bbox = [int(face[0]), int(face[1]), int(face[2]), int(face[3])]
                 confidence = float(face[14])
+                if confidence < self.score_threshold:
+                    continue
 
                 # Extract aligned face crop and 128-D SFace feature
                 aligned = self.recognizer.alignCrop(frame_bgr, face)
