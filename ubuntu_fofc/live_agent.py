@@ -1323,10 +1323,22 @@ visitor_queue: collections.deque = collections.deque()
 
 state: str = "SLEEPING"
 last_interaction_time: float = time.time()
+voice_session_until: float = 0.0
 
 def is_user_present() -> bool:
     """Returns True only when an enrolled user is actively verified in front of the camera."""
     return bool(currently_tracked_users) or (primary_user is not None)
+
+
+def extend_voice_session(now: Optional[float] = None) -> None:
+    """Keep voice interaction available for one inactivity window after engagement."""
+    global voice_session_until
+    voice_session_until = (time.time() if now is None else now) + INACTIVITY_TIMEOUT
+
+
+def can_process_voice_session() -> bool:
+    """Allow a recently greeted/engaged visitor through brief face-tracking gaps."""
+    return is_user_present() or time.time() < voice_session_until
 
 
 def apply_saved_name_pronunciation(text: str, display_name: str, pronunciation: str) -> str:
@@ -1405,6 +1417,7 @@ def on_new_user_arrived(user_info: Union[str, Dict[str, Any]], greeting_kind: st
 
     state = "ACTIVE"
     last_interaction_time = time.time()
+    extend_voice_session(last_interaction_time)
     dashboard_server.set_state("ACTIVE")
 
     # Clear audio queue so it is primed for incoming questions
@@ -1439,6 +1452,7 @@ def handle_presence_event(event_type: str, user_info: Optional[Dict[str, Any]]):
         user_key = (user_id or display_name).lower()
 
         currently_tracked_users.add(user_key)
+        extend_voice_session()
 
         # Enroll as primary user if none active, or enqueue in visitor queue
         if primary_user is None:
@@ -1479,9 +1493,11 @@ def handle_presence_event(event_type: str, user_info: Optional[Dict[str, Any]]):
             else:
                 primary_user = None
                 if not currently_tracked_users:
-                    state = "SLEEPING"
-                    dashboard_server.set_state("SLEEPING")
-                    dashboard_server.set_hardware_focus(None)
+                    remaining = max(0.0, voice_session_until - time.time())
+                    print(
+                        f"[VISION] Face presence lost; keeping the voice session open "
+                        f"for up to {remaining:.0f}s of inactivity."
+                    )
         elif visitor_queue and departed_id:
             visitor_queue = collections.deque([u for u in visitor_queue if u.get("user_id") != departed_id])
 
@@ -1568,6 +1584,7 @@ def start_presence_bridge(port: int = 8766):
 def stream_brain_to_voice(user_text: str):
     global dialog_turns, is_agent_speaking, interrupt_requested, primary_user, visitor_queue, _active_brain_response
 
+    extend_voice_session()
     reset_barge_in_capture()
     is_agent_speaking = True
     clear_all_queues()
@@ -1829,6 +1846,7 @@ def main():
             if not text_input_queue.empty():
                 typed_msg = text_input_queue.get_nowait()
                 print(f"\n[TYPED PROMPT]: {typed_msg}")
+                extend_voice_session()
 
                 typed_clean = re.sub(r'[^a-zA-Z0-9\s]', '', typed_msg.lower()).strip()
                 if video_playback_controller.video_controller.handle_if_active(typed_msg, speak_direct):
@@ -1898,8 +1916,10 @@ def main():
 
             frame = audio_queue.get()
 
-            # 2. Vision Presence Gate: Discard audio immediately when no authorized user is present
-            if not is_user_present():
+            # 2. Keep a recently engaged voice session alive through face-tracking gaps.
+            # In standby, still process audio so the explicit wake phrase can recover
+            # from a camera miss instead of creating a face-required wake deadlock.
+            if not can_process_voice_session() and state != "SLEEPING":
                 speech_buffer = []
                 pre_buffer.clear()
                 is_speaking_now = False
@@ -1908,6 +1928,10 @@ def main():
                 if state != "SLEEPING":
                     state = "SLEEPING"
                     dashboard_server.set_state("SLEEPING")
+                    dashboard_server.record_diagnostic(
+                        "agent", "voice_session_standby",
+                        details={"reason": "face_presence_and_voice_session_expired"},
+                    )
                 time.sleep(0.005)
                 continue
 
@@ -1970,6 +1994,7 @@ def main():
 
                                 if triggered:
                                     print(f"\n[WAKE WORD TRIGGERED via Whisper! ('{raw_text}')]")
+                                    extend_voice_session()
                                     audio_feedback.play_wake_chime()
                                     dashboard_server.set_state("ACTIVE")
 
@@ -2040,6 +2065,7 @@ def main():
                     silence_frames = 0
                     speech_buffer = list(pre_buffer)
                     pre_buffer.clear()
+                    extend_voice_session()
                     dashboard_server.set_state("LISTENING")
                     print("[LISTENING...]", end="\r", flush=True)
                 elif is_speaking_now:

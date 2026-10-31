@@ -20,6 +20,10 @@ external to this folder and is neither copied nor started here.
   device indices are intentionally not carried across.
 - Face enrollment data starts empty. Enroll the staff again on the Ubuntu
   machine; this avoids copying personal face images into the deployment copy.
+- A recognized arrival opens a voice session for the existing inactivity
+  window. Temporary face-tracking loss no longer discards microphone frames;
+  after standby, the explicit wake phrase can still recover the session even
+  when the camera has temporarily lost the visitor.
 
 ## Install on the Ubuntu machine
 
