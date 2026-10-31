@@ -16,6 +16,8 @@ requests>=2.31.0
 scipy>=1.11.0
 silero-vad>=5.1.0
 sounddevice>=0.4.6
+# Windows playback-reference echo cancellation (optional elsewhere).
+echoff==0.3.0; sys_platform == "win32" and python_version >= "3.11"
 soundfile>=0.12.1
 torch>=2.2.0
 torchaudio>=2.2.0

@@ -26,6 +26,7 @@ import dashboard_server
 import projection_bridge
 import video_playback_controller
 from greeting_policy import GreetingPolicy
+from audio_aec_input import AecAwareInputStream
 
 
 # Windows CUDA / DLL directory configuration for ONNX Runtime GPU
@@ -75,7 +76,12 @@ def get_input_stream_config(device_index=None):
     raise RuntimeError(f"No supported mono input rate found for {info.get('name', device_index)}: {last_error}")
 
 def make_input_stream(device_index=None):
-    """Open the hardware at its native rate; callback converts to model rate."""
+    """Open the selected microphone, using Windows playback echo cancellation when available."""
+    if sys.platform.startswith("win"):
+        return AecAwareInputStream(device_index, audio_callback)
+
+    # Keep the existing Ubuntu capture path unchanged until the Windows AEC
+    # integration has been validated on the deployment microphone and speakers.
     input_rate, input_blocksize = get_input_stream_config(device_index)
     callback = lambda indata, frames, time_info, status: audio_callback(
         indata, frames, time_info, status, input_sample_rate=input_rate
@@ -644,6 +650,8 @@ def switch_audio_device(device_name: str = "", device_id: str = "", device_index
                 dashboard_server.update_diagnostics_metrics(
                     "audio", device_name=identity["device_name"], host_api=identity["host_api"],
                     device_index=target_idx, model_sample_rate=SAMPLE_RATE,
+                    **(replacement_stream.get_diagnostics()
+                       if hasattr(replacement_stream, "get_diagnostics") else {}),
                 )
                 dashboard_server.record_diagnostic("audio", "input_device_switched", details={
                     "device_name": identity["device_name"], "host_api": identity["host_api"],
@@ -1825,6 +1833,11 @@ def main():
                     "agent", state=state, last_seen=current_time,
                     product_id=current_pointed_product_id,
                 )
+                if hasattr(active_audio_stream, "check_health"):
+                    active_audio_stream.check_health()
+                    dashboard_server.update_diagnostics_metrics(
+                        "audio", **active_audio_stream.get_diagnostics(),
+                    )
                 last_diagnostics_heartbeat = current_time
 
             # 1. Console Text Input Check
