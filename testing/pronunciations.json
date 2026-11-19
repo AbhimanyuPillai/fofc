@@ -1,0 +1,11 @@
+[
+  {"label":"atg", "text":"An ATG measures the tank level. OneSync supports twelve ATGs."},
+  {"label":"ratg", "text":"This is the R-ATG Ultrasonic. The RATG Capacitive uses a different measuring method."},
+  {"label":"du", "text":"Each DU is a dispensing unit. SMART#C works with single-DU and double-DU fuelling."},
+  {"label":"bos", "text":"In offline mode, OneSync connects to the BOS card over Zigbee and LoRaWAN."},
+  {"label":"is-barrier", "text":"IS-Barrier is an intrinsically safe barrier developed in-house by Repos. It's built for Zone 0 installations."},
+  {"label":"ai-camera", "text":"The AI camera monitors the fuelling process."},
+  {"label":"engine", "text":"SMART#C helps keep engine RPM steady through the PTO."},
+  {"label":"communication", "text":"Secure Fuelling connects via BLE. OneSync can use WiFi or 4G."},
+  {"label":"catalog-names", "text":"OneSync, Secure Fueling, Data Link, R-ATG Ultrasonic, R-ATG Capacitance, SMART#C, R-CAM, IS-Barrier, Fire Shield, RFID."}
+]

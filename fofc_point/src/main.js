@@ -161,7 +161,7 @@ class AeroFingerApp {
       if (zRes.ok) {
         const fetchedZones = await zRes.json();
         if (Array.isArray(fetchedZones) && fetchedZones.length > 0) {
-          this.zoneManager.zones = fetchedZones;
+          this.zoneManager.replaceZones(fetchedZones);
           this.zoneManager.saveToStorage();
         }
       }
@@ -182,7 +182,13 @@ class AeroFingerApp {
       navigator.mediaDevices.addEventListener('devicechange', () => this.populateCameraDevices());
     }
     const savedHandDev = localStorage.getItem('handcam_device');
-    let camRes = await this.camera.startCamera(savedHandDev || null);
+    const savedResolution = this.parseCaptureResolution(localStorage.getItem('handcam_resolution'));
+    let camRes = await this.camera.startCamera(savedHandDev || null, savedResolution);
+    if (!camRes.success && savedResolution) {
+      localStorage.removeItem('handcam_resolution');
+      camRes = await this.camera.startCamera(savedHandDev || null, { width: 640, height: 480 });
+    }
+    this.reportCaptureResolution();
     let cameraSelectionFailed = false;
 
     if (!camRes.success && savedHandDev) {
@@ -206,6 +212,44 @@ class AeroFingerApp {
     // 3. Start High-Performance Render Loop
     this.isRunning = true;
     requestAnimationFrame((t) => this.renderLoop(t));
+  }
+
+  parseCaptureResolution(value) {
+    if (!Array.from(this.resolutionSelect.options).some(option => option.value === value)) return null;
+    const [width, height] = value.split('x').map(Number);
+    return { width, height };
+  }
+
+  reportCaptureResolution() {
+    const { width, height } = this.camera.resolution;
+    const requested = `${width}x${height}`;
+    this.resolutionSelect.value = requested;
+    window.parent?.postMessage({
+      type: 'POINT_FRAME_SIZE',
+      width: this.video.videoWidth,
+      height: this.video.videoHeight,
+      requested,
+    }, '*');
+  }
+
+  async changeCaptureResolution(value) {
+    const resolution = this.parseCaptureResolution(value);
+    if (!resolution || this.changingResolution) return;
+    const previous = this.camera.resolution;
+    const deviceId = this.camera.selectedDeviceId;
+    this.changingResolution = true;
+    try {
+      const result = await this.camera.startCamera(deviceId, resolution);
+      if (result.success) {
+        localStorage.setItem('handcam_resolution', value);
+      } else {
+        console.warn('[Camera] Requested resolution failed; restoring previous settings.');
+        await this.camera.startCamera(deviceId, previous);
+      }
+    } finally {
+      this.changingResolution = false;
+      this.reportCaptureResolution();
+    }
   }
 
   setupVideoFrameCallback() {
@@ -318,35 +362,7 @@ class AeroFingerApp {
     const h = this.canvas.height;
     this.ctx.clearRect(0, 0, w, h);
 
-    // Compute viewport layout parameters once per frame
-    const flipH = this.camera.flipH;
-    const flipV = this.camera.flipV;
-    const fitMode = this.camera.fitMode;
-    const videoAspect = (this.video.videoWidth || 640) / (this.video.videoHeight || 480);
-    const screenAspect = w / h;
-
-    let renderW = w;
-    let renderH = h;
-    let offsetX = 0;
-    let offsetY = 0;
-
-    if (fitMode === 'cover') {
-      if (screenAspect > videoAspect) {
-        renderH = w / videoAspect;
-        offsetY = (h - renderH) * 0.5;
-      } else {
-        renderW = h * videoAspect;
-        offsetX = (w - renderW) * 0.5;
-      }
-    } else {
-      if (screenAspect > videoAspect) {
-        renderW = h * videoAspect;
-        offsetX = (w - renderW) * 0.5;
-      } else {
-        renderH = w / videoAspect;
-        offsetY = (h - renderH) * 0.5;
-      }
-    }
+    const { flipH, flipV } = this.camera;
 
     // Sync zone screen pixel coordinates (cached, zero allocations)
     this.zoneManager.syncScreenPoints(w, h);
@@ -361,7 +377,7 @@ class AeroFingerApp {
       if (this.latestLandmarks.length > 1) {
         for (let i = 0; i < this.latestLandmarks.length; i++) {
           const testRay = this.calculatePointingRay(
-            this.latestLandmarks[i], w, h, renderW, renderH, offsetX, offsetY, flipH, flipV
+            this.latestLandmarks[i], w, h, flipH, flipV
           );
           if (testRay) {
             for (let z = 0; z < this.zoneManager.zones.length; z++) {
@@ -376,7 +392,7 @@ class AeroFingerApp {
       }
 
       pointingRay = this.calculatePointingRay(
-        chosenHand, w, h, renderW, renderH, offsetX, offsetY, flipH, flipV
+        chosenHand, w, h, flipH, flipV
       );
     }
 
@@ -413,15 +429,15 @@ class AeroFingerApp {
         this.latestLandmarks,
         flipH,
         flipV,
-        fitMode,
-        videoAspect
+        'contain',
+        w / h
       );
     }
 
     requestAnimationFrame((t) => this.renderLoop(t));
   }
 
-  calculatePointingRay(hand, w, h, renderW, renderH, offsetX, offsetY, flipH, flipV) {
+  calculatePointingRay(hand, w, h, flipH, flipV) {
     if (!hand || hand.length < 21) return null;
 
     const tipLm = hand[8]; // Index Fingertip
@@ -430,18 +446,18 @@ class AeroFingerApp {
 
     const normTipX = flipH ? 1 - tipLm.x : tipLm.x;
     const normTipY = flipV ? 1 - tipLm.y : tipLm.y;
-    const screenTipX = offsetX + normTipX * renderW;
-    const screenTipY = offsetY + normTipY * renderH;
+    const screenTipX = normTipX * w;
+    const screenTipY = normTipY * h;
 
     const normPipX = flipH ? 1 - pipLm.x : pipLm.x;
     const normPipY = flipV ? 1 - pipLm.y : pipLm.y;
-    const screenPipX = offsetX + normPipX * renderW;
-    const screenPipY = offsetY + normPipY * renderH;
+    const screenPipX = normPipX * w;
+    const screenPipY = normPipY * h;
 
     const normMcpX = flipH ? 1 - mcpLm.x : mcpLm.x;
     const normMcpY = flipV ? 1 - mcpLm.y : mcpLm.y;
-    const screenMcpX = offsetX + normMcpX * renderW;
-    const screenMcpY = offsetY + normMcpY * renderH;
+    const screenMcpX = normMcpX * w;
+    const screenMcpY = normMcpY * h;
 
     let dirX = screenTipX - screenPipX;
     let dirY = screenTipY - screenPipY;
@@ -473,17 +489,31 @@ class AeroFingerApp {
   }
 
   syncCanvasSize() {
-    const width = this.viewportWrapper.clientWidth || window.innerWidth;
-    const height = this.viewportWrapper.clientHeight || window.innerHeight;
+    const viewportWidth = this.viewportWrapper.clientWidth;
+    const viewportHeight = this.viewportWrapper.clientHeight;
+    if (!viewportWidth || !viewportHeight) return;
 
-    if (this.canvas.width !== width || this.canvas.height !== height) {
-      this.canvas.width = width;
-      this.canvas.height = height;
-    }
+    // Match the video element's centered object-fit rectangle, including on resize.
+    const videoWidth = this.video.videoWidth || 640;
+    const videoHeight = this.video.videoHeight || 480;
+    const fit = this.camera.fitMode === 'cover' ? Math.max : Math.min;
+    const scale = fit(viewportWidth / videoWidth, viewportHeight / videoHeight);
+    const width = videoWidth * scale;
+    const height = videoHeight * scale;
+    const pixelWidth = Math.max(1, Math.round(width));
+    const pixelHeight = Math.max(1, Math.round(height));
+
+    if (this.canvas.width !== pixelWidth) this.canvas.width = pixelWidth;
+    if (this.canvas.height !== pixelHeight) this.canvas.height = pixelHeight;
+    const cssWidth = `${width}px`;
+    const cssHeight = `${height}px`;
+    if (this.canvas.style.width !== cssWidth) this.canvas.style.width = cssWidth;
+    if (this.canvas.style.height !== cssHeight) this.canvas.style.height = cssHeight;
   }
 
   setupEventListeners() {
     window.addEventListener('resize', () => this.syncCanvasSize());
+    this.video.addEventListener('resize', () => this.reportCaptureResolution());
 
     // 1. Add Area Button
     this.btnAddArea.addEventListener('click', () => {
@@ -530,6 +560,9 @@ class AeroFingerApp {
       if (!e.data) return;
       if (e.data.type === 'ENUMERATE_CAMERAS') {
         await this.populateCameraDevices();
+        this.reportCaptureResolution();
+      } else if (e.data.type === 'SET_POINT_RESOLUTION' && e.source === window.parent) {
+        await this.changeCaptureResolution(e.data.resolution);
       } else if (e.data.type === 'ADMIN_START_DRAWING') {
         if (this.zoneManager?.isAdjustMode) {
           this.zoneManager.setAdjustMode(false);
@@ -562,7 +595,7 @@ class AeroFingerApp {
         }
       } else if (e.data.type === 'SET_ZONES' || e.data.type === 'UPDATE_ZONES') {
         if (Array.isArray(e.data.zones) && this.zoneManager) {
-          this.zoneManager.zones = e.data.zones;
+          this.zoneManager.replaceZones(e.data.zones);
           this.zoneManager.saveToStorage();
           if (this.canvas) {
             this.zoneManager.syncScreenPoints(this.canvas.width, this.canvas.height);
@@ -578,28 +611,30 @@ class AeroFingerApp {
 
     // 2. Mouse Drag & Click to Define or Adjust Areas
     this.viewportWrapper.addEventListener('mousedown', (e) => {
+      this.syncCanvasSize();
+      const rect = this.canvas.getBoundingClientRect();
+      if (e.clientX < rect.left || e.clientX > rect.right ||
+          e.clientY < rect.top || e.clientY > rect.bottom) return;
       if (this.zoneManager.isAdjustMode) {
-        const rect = this.viewportWrapper.getBoundingClientRect();
         const handled = this.zoneManager.onAdjustMouseDown(e, rect);
         this.updateAdjustCursor();
         if (handled) return;
       }
       if (!this.zoneManager.isDrawingMode) return;
       if (e.target.closest('#draw-mode-banner') || e.target.closest('#adjust-mode-banner')) return;
-      const rect = this.viewportWrapper.getBoundingClientRect();
       this.zoneManager.onMouseDown(e, rect);
       this.updateDrawBannerUI();
     });
 
     window.addEventListener('mousemove', (e) => {
       if (this.zoneManager.isAdjustMode) {
-        const rect = this.viewportWrapper.getBoundingClientRect();
+        const rect = this.canvas.getBoundingClientRect();
         this.zoneManager.onAdjustMouseMove(e, rect);
         this.updateAdjustCursor();
         return;
       }
       if (!this.zoneManager.isDrawingMode) return;
-      const rect = this.viewportWrapper.getBoundingClientRect();
+      const rect = this.canvas.getBoundingClientRect();
       this.zoneManager.onMouseMove(e, rect);
     });
 
@@ -616,7 +651,7 @@ class AeroFingerApp {
       }
       if (!this.zoneManager.isDrawingMode) return;
       if (e.target && e.target.closest && (e.target.closest('#draw-mode-banner') || e.target.closest('#adjust-mode-banner'))) return;
-      const rect = this.viewportWrapper.getBoundingClientRect();
+      const rect = this.canvas.getBoundingClientRect();
 
       this.zoneManager.onMouseUp(rect, (newZone, saveCallback) => {
         this.openNameAreaModal(newZone, saveCallback);
@@ -716,6 +751,7 @@ class AeroFingerApp {
     // 6. Camera Flip & Fit Controls
     this.btnToggleFlipH.addEventListener('click', () => {
       const flipped = this.camera.toggleFlipH();
+      this.zoneManager.setMirrored(flipped);
       this.btnToggleFlipH.classList.toggle('active', flipped);
     });
 
@@ -749,10 +785,7 @@ class AeroFingerApp {
       this.camera.startCamera(e.target.value);
     });
 
-    this.resolutionSelect.addEventListener('change', (e) => {
-      const [w, h] = e.target.value.split('x').map(Number);
-      this.camera.setResolution(w, h);
-    });
+    this.resolutionSelect.addEventListener('change', e => this.changeCaptureResolution(e.target.value));
 
     // Spacebar Hold to Adjust Polygons
     window.addEventListener('keydown', (e) => {

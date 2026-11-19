@@ -5,8 +5,13 @@ import { Canvas } from '@react-three/fiber';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useGesture } from '@use-gesture/react';
 import Product3D from './Product3D';
+import {carouselPreviews} from './CarouselStillPreview';
 import ProductDetails from './ProductDetails';
 import { soundSystem } from '@/utils/soundSystem';
+
+const CAROUSEL_CAMERA: [number, number, number] = [0, 30, 400];
+// Center the render on the arrow buttons, above the middle of their captioned wrappers.
+const NAV_BUTTON_CENTER_OFFSET = '-0.75rem';
 
 // Dynamic products loaded from /api/products
 type Product = {
@@ -32,6 +37,7 @@ export default function ProductCarousel() {
     const [isPlaying, setIsPlaying] = useState(false);
     const [isRotating, setIsRotating] = useState(false);
     const [isClient, setIsClient] = useState(false);
+    const [useCarouselPreview, setUseCarouselPreview] = useState(true);
     const [animationsEnabled, setAnimationsEnabled] = useState(false);
     const longPressTimer = useRef<NodeJS.Timeout | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -46,6 +52,7 @@ export default function ProductCarousel() {
     // Initialize audio context on component mount
     useEffect(() => {
         soundSystem.initializeAudio().catch(console.error);
+        setUseCarouselPreview(new URLSearchParams(window.location.search).get('carousel') !== 'glb');
         setIsClient(true); // Set client flag to true after mount
     }, []);
 
@@ -202,10 +209,13 @@ export default function ProductCarousel() {
         const angle = adjustedIndex * angleStep;
         const x = Math.sin(angle) * radius;
         const z = Math.cos(angle) * radius;
-        const y = Math.sin(angle * 0.5) * 20; // Slight vertical wave
+        // Keep centers on the camera's middle plane so depth doesn't shift them up or down.
+        const y = useCarouselPreview
+            ? z * CAROUSEL_CAMERA[1] / CAROUSEL_CAMERA[2]
+            : Math.sin(angle * 0.5) * 20;
 
         return { x, y, z, angle };
-    }, [angleStep, radius]);
+    }, [angleStep, radius, useCarouselPreview]);
 
     // Gesture handling
     const bind = useGesture({
@@ -454,8 +464,9 @@ export default function ProductCarousel() {
             >
                 {isClient ? (
                     <Canvas
-                        camera={{ position: [0, 30, 400], fov: 60 }}
+                        camera={{ position: CAROUSEL_CAMERA, fov: 60 }}
                         className="w-full h-full"
+                        style={useCarouselPreview ? {top: NAV_BUTTON_CENTER_OFFSET} : undefined}
                     >
                         <ambientLight intensity={0.4} />
                         <directionalLight position={[10, 10, 5]} intensity={1} />
@@ -464,6 +475,7 @@ export default function ProductCarousel() {
                         {products?.length > 0 && products?.map((product, index) => {
                             const position = getProductPosition(index, selectedIndex);
                             const isSelected = index === selectedIndex;
+                            const preview = carouselPreviews[product.id];
 
                             return (
                                 <Product3D
@@ -473,6 +485,7 @@ export default function ProductCarousel() {
                                     position={[position.x, position.y, position.z]}
                                     rotation={[0, position.angle + Math.PI, 0]}
                                     isSelected={isSelected}
+                                    stillPreview={useCarouselPreview && preview?.modelPath === product.modelPath ? preview : undefined}
                                     onSwipeUp={handleSwipeUp}
 
                                     // Hover effect
@@ -492,7 +505,7 @@ export default function ProductCarousel() {
                                     // NEW: 3D Model size and position
                                     modelScale={5.0}                    // Make all models bigger
                                     selectedModelScale={5.0}            // Make selected model even bigger
-                                    modelPosition={[0, 5, 0]}         // Move model up slightly
+                                    modelPosition={[0, useCarouselPreview ? 0 : 5, 0]}
                                 />
                             );
                         })}

@@ -4,7 +4,7 @@ export class EdgeCameraManager {
     this.stream = null;
     this.devices = [];
     this.selectedDeviceId = null;
-    this.flipH = true; // Mirrored by default for natural webcam feel
+    this.flipH = false; // Show the table in its physical orientation by default.
     this.flipV = false;
     this.fitMode = 'contain'; // 'contain' = 100% uncropped view, 'cover' = full-bleed
     this.resolution = { width: 640, height: 480 };
@@ -45,7 +45,7 @@ export class EdgeCameraManager {
       video: {
         width: { ideal: this.resolution.width },
         height: { ideal: this.resolution.height },
-        frameRate: { ideal: 60, min: 30 },
+        frameRate: this.resolution.width >= 1920 ? { ideal: 30 } : { ideal: 60, min: 30 },
         facingMode: this.selectedDeviceId ? undefined : 'user',
         deviceId: this.selectedDeviceId ? { exact: this.selectedDeviceId } : undefined,
       },

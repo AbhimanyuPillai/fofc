@@ -14,7 +14,7 @@ WAKE_PREFIX = r"(?:\b(?:hey|hay|ay)\s+(?:repos|repose|raypos|repo|ripples|rappos
 # Actions
 PAUSE_ACTIONS = r"(?:pause\s+(?:the\s+)?(?:video|demo|playback)|pause|freeze|hold\s+on)"
 STOP_ACTIONS = r"(?:stop\s+(?:the\s+)?(?:video|demo|playback)|stop|end\s+(?:the\s+)?(?:video|demo)|close\s+(?:the\s+)?(?:video|demo)|cancel\s+(?:the\s+)?(?:video|demo))"
-RESUME_ACTIONS = r"(?:resume\s+(?:the\s+)?(?:video|demo|playback)|resume|continue\s+(?:the\s+)?(?:video|demo|playback)|continue|play\s+(?:the\s+)?(?:video|demo|playback)|unpause)"
+RESUME_ACTIONS = r"(?:resume\s+(?:the\s+)?(?:video|demo|playback)|resume|continue\s+(?:the\s+)?(?:video|demo|playback)|continue|unpause(?:\s+(?:the\s+)?(?:video|demo|playback))?)"
 
 CONTROL_POLITE_PREFIX = r"(?:(?:please|can|could|would|you|just|now)\s+)*"
 CONTROL_POLITE_SUFFIX = r"(?:\s+please)?"
@@ -93,14 +93,14 @@ class VideoPlaybackController:
         if action == "play":
             print(f"[VIDEO CONTROLLER] Video started playing (Product ID: {prod_id}). Entering partial standby.")
             self.set_playing(True, prod_id)
-        elif action in ("pause", "stop"):
-            reason = "paused" if action == "pause" else "stopped or finished"
+        elif action in ("pause", "stop", "swap"):
+            reason = {"pause": "paused", "stop": "stopped or finished", "swap": "cleared by a board change"}[action]
             print(f"[VIDEO CONTROLLER] Video {reason}. Exiting partial standby -> Normal conversation mode.")
             if action == "pause" and prod_id is not None:
                 with self._lock:
                     self._last_product_id = prod_id
             self.set_playing(False)
-            if action == "stop":
+            if action in ("stop", "swap"):
                 with self._lock:
                     self._last_product_id = None
 

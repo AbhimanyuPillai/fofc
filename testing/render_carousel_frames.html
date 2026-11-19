@@ -1,0 +1,54 @@
+<!doctype html>
+<meta charset="utf-8">
+<script type="importmap">
+{"imports":{"three":"/three/build/three.module.js","three/addons/":"/three/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {DRACOLoader} from 'three/addons/loaders/DRACOLoader.js';
+import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
+
+const draco = new DRACOLoader().setDecoderPath('/three/examples/jsm/libs/draco/gltf/');
+const loader = new GLTFLoader().setDRACOLoader(draco).setMeshoptDecoder(MeshoptDecoder);
+const renderer = new THREE.WebGLRenderer({alpha: true, antialias: true, preserveDrawingBuffer: true});
+renderer.setClearColor(0x000000, 0);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+const scene = new THREE.Scene();
+scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+const directional = new THREE.DirectionalLight(0xffffff, 1);
+scene.add(directional);
+const point = new THREE.PointLight(0x00ffff, 0.5);
+scene.add(point);
+const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
+const vertical = new THREE.Vector3(0, 1, 0);
+
+window.prepareFrames = async ({size, modelScale}) => {
+    const gltf = await loader.loadAsync('/model.glb');
+    scene.add(gltf.scene);
+    renderer.setSize(size, size, false);
+    const {min, max} = new THREE.Box3().setFromObject(gltf.scene);
+    return 2.24 * Math.hypot(
+        Math.max(Math.abs(min.x), Math.abs(max.x)),
+        Math.max(Math.abs(min.y), Math.abs(max.y)),
+        Math.max(Math.abs(min.z), Math.abs(max.z)),
+    ) * modelScale;
+};
+
+window.renderFrame = ({orbit, radius, cameraZ, cameraY, modelScale, frameWidth}) => {
+    const yaw = orbit + Math.PI;
+    const boardX = radius * Math.sin(orbit);
+    const boardZ = radius * Math.cos(orbit);
+    const boardY = 5 + Math.sin(orbit / 2) * 20;
+    // Match the live scene by expressing the viewer and lights in board-local space.
+    camera.position.set(-boardX, cameraY - boardY, cameraZ - boardZ)
+        .applyAxisAngle(vertical, -yaw).divideScalar(modelScale);
+    directional.position.set(10, 10, 5).applyAxisAngle(vertical, -yaw);
+    point.position.set(-boardX, -boardY, -boardZ).applyAxisAngle(vertical, -yaw).divideScalar(modelScale);
+    camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(frameWidth / modelScale / (2 * camera.position.length())));
+    camera.lookAt(0, 0, 0);
+    camera.updateProjectionMatrix();
+    renderer.render(scene, camera);
+    return renderer.domElement.toDataURL('image/png').split(',')[1];
+};
+</script>

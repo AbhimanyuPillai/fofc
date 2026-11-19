@@ -1,0 +1,133 @@
+{
+  "width": 82.39563299287423,
+  "frames": [
+    {
+      "angle": 0.0,
+      "file": "angle-00.webp"
+    },
+    {
+      "angle": 345.0,
+      "file": "angle-01.webp"
+    },
+    {
+      "angle": 330.0,
+      "file": "angle-02.webp"
+    },
+    {
+      "angle": 315.0,
+      "file": "angle-03.webp"
+    },
+    {
+      "angle": 300.0,
+      "file": "angle-04.webp"
+    },
+    {
+      "angle": 285.0,
+      "file": "angle-05.webp"
+    },
+    {
+      "angle": 275.7336,
+      "file": "angle-06.webp"
+    },
+    {
+      "angle": 270.0,
+      "file": "angle-07.webp"
+    },
+    {
+      "angle": 255.0,
+      "file": "angle-08.webp"
+    },
+    {
+      "angle": 245.1239,
+      "file": "angle-09.webp"
+    },
+    {
+      "angle": 240.0,
+      "file": "angle-10.webp"
+    },
+    {
+      "angle": 225.0,
+      "file": "angle-11.webp"
+    },
+    {
+      "angle": 221.9256,
+      "file": "angle-12.webp"
+    },
+    {
+      "angle": 210.0,
+      "file": "angle-13.webp"
+    },
+    {
+      "angle": 200.6576,
+      "file": "angle-14.webp"
+    },
+    {
+      "angle": 195.0,
+      "file": "angle-15.webp"
+    },
+    {
+      "angle": 180.0,
+      "file": "angle-16.webp"
+    },
+    {
+      "angle": 165.0,
+      "file": "angle-17.webp"
+    },
+    {
+      "angle": 159.3424,
+      "file": "angle-18.webp"
+    },
+    {
+      "angle": 150.0,
+      "file": "angle-19.webp"
+    },
+    {
+      "angle": 138.0744,
+      "file": "angle-20.webp"
+    },
+    {
+      "angle": 135.0,
+      "file": "angle-21.webp"
+    },
+    {
+      "angle": 120.0,
+      "file": "angle-22.webp"
+    },
+    {
+      "angle": 114.8761,
+      "file": "angle-23.webp"
+    },
+    {
+      "angle": 105.0,
+      "file": "angle-24.webp"
+    },
+    {
+      "angle": 90.0,
+      "file": "angle-25.webp"
+    },
+    {
+      "angle": 84.2664,
+      "file": "angle-26.webp"
+    },
+    {
+      "angle": 75.0,
+      "file": "angle-27.webp"
+    },
+    {
+      "angle": 60.0,
+      "file": "angle-28.webp"
+    },
+    {
+      "angle": 45.0,
+      "file": "angle-29.webp"
+    },
+    {
+      "angle": 30.0,
+      "file": "angle-30.webp"
+    },
+    {
+      "angle": 15.0,
+      "file": "angle-31.webp"
+    }
+  ]
+}

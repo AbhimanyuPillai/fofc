@@ -90,26 +90,33 @@
       text-transform: uppercase;
     }
 
-    /* MAIN CONTAINER */
-    main {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      height: calc(100vh - 48px);
-      padding: 0.85rem 1.25rem 0.85rem 1.25rem;
-      gap: 0.85rem;
-      overflow: hidden;
-      background: var(--bg-root);
+    .dashboard-nav { display:flex; gap:.4rem; margin-left:auto; }
+    .dashboard-nav button[aria-pressed="true"] { color:#fff; border-color:#666; }
+
+    .dashboard-page {
+      position:absolute;
+      inset:48px 0 0;
+      display:flex;
+      flex-direction:column;
+      padding:.85rem 1.25rem;
+      gap:.85rem;
+      overflow:hidden;
+      background:var(--bg-root);
     }
 
-    /* TOP ROW: DUAL VIDEO PANES (40% / 60%) */
-    .top-panes-row {
-      display: flex;
-      height: 56%;
-      min-height: 280px;
-      gap: 0.85rem;
-      width: 100%;
+    /* Keep both camera iframes mounted and sized while switching views. */
+    .dashboard-page[inert] { opacity:0; pointer-events:none; }
+    #agent-view .pane-card { flex: 0 1 56%; min-height: 0; }
+    #agent-view .bottom-pane, #pointing-view .pane-card { flex:1; min-height:0; }
+    #pointing-view .pane-header { height:auto; flex-wrap:wrap; gap:.35rem; padding-block:.35rem; }
+    #pointing-view .pane-controls { flex-wrap:wrap; }
+    #pointing-view .admin-drawer:not([hidden]) { display:block; max-height:35%; overflow:auto; }
+    #pointing-view .admin-drawer-inner {
+      display:grid;
+      grid-template-columns:repeat(auto-fit, minmax(min(100%, 255px), 1fr));
+      align-items:start;
     }
+    .point-frame-size { font-size:.68rem; color:var(--text-muted); white-space:nowrap; }
 
     .pane-card {
       background: var(--bg-panel);
@@ -119,16 +126,6 @@
       display: flex;
       flex-direction: column;
       position: relative;
-    }
-
-    .top-left-pane {
-      flex: 0 0 calc(40% - 0.425rem);
-      max-width: calc(40% - 0.425rem);
-    }
-
-    .top-right-pane {
-      flex: 0 0 calc(60% - 0.425rem);
-      max-width: calc(60% - 0.425rem);
     }
 
     .pane-header {
@@ -709,19 +706,10 @@
       color: var(--text-muted);
     }
 
-    /* Responsive adjustments */
-    @media (max-width: 900px) {
-      .top-panes-row {
-        flex-direction: column;
-        height: auto;
-      }
-
-      .top-left-pane,
-      .top-right-pane {
-        flex: 1 1 100%;
-        max-width: 100%;
-        height: 260px;
-      }
+    @media (max-width: 640px) {
+      header { padding-inline:.65rem; }
+      .dashboard-page { padding:.55rem; gap:.55rem; }
+      .pane-header { padding-inline:.5rem; }
     }
   </style>
 </head>
@@ -738,14 +726,14 @@
       </div>
       <div class="brand-title">REPOS</div>
     </div>
+    <nav class="dashboard-nav" aria-label="Dashboard views">
+      <button id="show-agent-view" class="admin-btn" type="button" aria-controls="agent-view" aria-pressed="true">Agent &amp; face</button>
+      <button id="show-pointing-view" class="admin-btn" type="button" aria-controls="pointing-view" aria-pressed="false">Pointing camera</button>
+    </nav>
   </header>
 
-  <!-- 3-PANE MASTER LAYOUT -->
-  <main>
-    <!-- TOP ROW (40% / 60% DUAL VIDEO HUDS) -->
-    <div class="top-panes-row">
-      <!-- Top-Left Pane (40% width): FACECAM -->
-      <div class="pane-card top-left-pane">
+  <main id="agent-view" class="dashboard-page" aria-label="Agent and face camera">
+      <div class="pane-card">
         <div class="pane-header">
           <div class="pane-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -812,8 +800,32 @@
         </div>
       </div>
 
-      <!-- Top-Right Pane (60% width): HANDCAM -->
-      <div class="pane-card top-right-pane">
+    <!-- BOTTOM PANE (FULL WIDTH): ACTIVE TARGET & DIALOGUE CONSOLE -->
+    <div class="bottom-pane">
+      <!-- Minimal Single Active Target Display -->
+      <div id="active-target-bar" class="active-target-bar" style="display: none;">
+        <div class="active-target-badge">
+          <span class="active-target-dot"></span>
+          <span id="active-target-name" class="active-target-name"></span>
+          <span id="active-target-tag" class="active-target-tag"></span>
+          <span class="active-target-status">[LATCHED]</span>
+        </div>
+      </div>
+
+      <!-- Real-Time Dialogue Console & Telemetry Feed -->
+      <div id="terminal-body" class="terminal-body">
+        <div class="status-pill-row">
+          <div class="dialogue-pill pill-system">
+            <span class="pill-dot"></span>
+            <span>[REPOS] Initialized • Standby</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <main id="pointing-view" class="dashboard-page" aria-label="Pointing camera" inert>
+    <div class="pane-card">
         <div class="pane-header">
           <div class="pane-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -827,10 +839,17 @@
             HANDCAM
           </div>
           <div class="pane-controls">
-            <button id="toggle-admin-hand" class="admin-toggle-btn" type="button" title="Interactive target bounding box configuration suite">[ Edit Admin Options ]</button>
+            <button id="toggle-admin-hand" class="admin-toggle-btn" type="button" aria-expanded="false" aria-controls="admin-drawer-hand">Edit targets</button>
             <select id="cam-select-2" class="media-select" aria-label="HANDCAM Camera">
               <option value="">Camera</option>
             </select>
+            <select id="point-resolution" class="media-select" aria-label="Pointing camera capture resolution">
+              <option value="640x480">480p</option>
+              <option value="480x360">360p</option>
+              <option value="1280x720">720p</option>
+              <option value="1920x1080">1080p</option>
+            </select>
+            <span id="point-frame-size" class="point-frame-size" aria-live="polite"></span>
             <select id="mic-select-2" class="media-select" aria-label="HANDCAM Microphone">
               <option value="">Microphone</option>
             </select>
@@ -838,7 +857,7 @@
         </div>
 
         <!-- Collapsible Admin Panel: HANDCAM -->
-        <div id="admin-drawer-hand" class="admin-drawer" style="display: none;">
+        <div id="admin-drawer-hand" class="admin-drawer" hidden>
           <div class="admin-drawer-inner">
             <div class="admin-row">
               <label class="admin-label">Target</label>
@@ -869,30 +888,6 @@
             allow="camera; microphone"></iframe>
         </div>
       </div>
-    </div>
-
-    <!-- BOTTOM PANE (FULL WIDTH): ACTIVE TARGET & DIALOGUE CONSOLE -->
-    <div class="bottom-pane">
-      <!-- Minimal Single Active Target Display -->
-      <div id="active-target-bar" class="active-target-bar" style="display: none;">
-        <div class="active-target-badge">
-          <span class="active-target-dot"></span>
-          <span id="active-target-name" class="active-target-name"></span>
-          <span id="active-target-tag" class="active-target-tag"></span>
-          <span class="active-target-status">[LATCHED]</span>
-        </div>
-      </div>
-
-      <!-- Real-Time Dialogue Console & Telemetry Feed -->
-      <div id="terminal-body" class="terminal-body">
-        <div class="status-pill-row">
-          <div class="dialogue-pill pill-system">
-            <span class="pill-dot"></span>
-            <span>[REPOS] Initialized • Standby</span>
-          </div>
-        </div>
-      </div>
-    </div>
   </main>
 
   <section id="admin-workspace" class="admin-workspace" aria-hidden="true">
@@ -900,7 +895,6 @@
       <div class="brand-icon" aria-hidden="true">A</div>
       <div class="admin-workspace-title">STAFF ADMIN</div>
       <div class="admin-workspace-tabs">
-        <button id="admin-tab-face" class="admin-btn admin-btn-primary" type="button">Face enrollment</button>
         <button id="admin-tab-hand" class="admin-btn" type="button">Point targets</button>
       </div>
       <button id="admin-close" class="admin-btn" type="button" aria-label="Close admin">Close</button>
@@ -912,12 +906,6 @@
       <div class="admin-tools-column"><div id="admin-face-tools-slot"></div>
         <h2 class="admin-section-heading">Registered visitors</h2><div id="admin-user-list" class="admin-user-list"></div>
       </div>
-    </div>
-    <div id="admin-view-hand" class="admin-workspace-body">
-      <div class="admin-live-column"><h2 class="admin-section-heading">Live point camera · draw a target directly on the feed</h2><div id="admin-hand-feed-slot"></div>
-        <p class="admin-help">Use “Draw on Feed”, then drag to create a target area. Existing targets can be moved or resized from the feed’s adjust mode. Changes are saved and applied to the pointing engine.</p>
-      </div>
-      <div class="admin-tools-column"><div id="admin-hand-tools-slot"></div></div>
     </div>
   </section>
 
@@ -1370,6 +1358,12 @@
         }
         return;
       }
+      if (data.type === 'POINT_FRAME_SIZE' && handFrame && event.source === handFrame.contentWindow) {
+        const label = document.getElementById('point-frame-size');
+        label.textContent = data.width && data.height ? `${data.width} × ${data.height} live` : '';
+        if (data.requested) document.getElementById('point-resolution').value = data.requested;
+        return;
+      }
       if (data.type !== 'CAMERA_DEVICES') return;
       const expectedFrame = data.stream === 'facecam' ? faceFrame
         : data.stream === 'handcam' ? handFrame : null;
@@ -1526,21 +1520,12 @@
       const faceFrame = document.getElementById('iframe-face');
       const handFrame = document.getElementById('iframe-point');
       const faceFeed = faceFrame?.parentElement;
-      const handFeed = handFrame?.parentElement;
       const faceDrawer = document.getElementById('admin-drawer-face');
       const handDrawer = document.getElementById('admin-drawer-hand');
       const faceHome = faceFeed?.parentElement;
-      const handHome = handFeed?.parentElement;
-      const faceFeedRect = faceFeed?.getBoundingClientRect();
-      const handFeedRect = handFeed?.getBoundingClientRect();
-      const faceFeedAspect = faceFeedRect?.height ? faceFeedRect.width / faceFeedRect.height : 1.8;
-      const handFeedAspect = handFeedRect?.height ? handFeedRect.width / handFeedRect.height : 2.7;
       const faceDrawerHome = faceDrawer?.parentElement;
-      const handDrawerHome = handDrawer?.parentElement;
       const faceFeedNext = faceFeed?.nextSibling;
-      const handFeedNext = handFeed?.nextSibling;
       const faceDrawerNext = faceDrawer?.nextSibling;
-      const handDrawerNext = handDrawer?.nextSibling;
       const faceFeedback = document.getElementById('admin-face-feedback');
       const handFeedback = document.getElementById('admin-hand-feedback');
       const faceName = document.getElementById('admin-face-name');
@@ -1573,57 +1558,74 @@
         else originalParent.appendChild(node);
         delete node.dataset.adminHome;
       }
-      function closeAdmin() {
+      const agentView = document.getElementById('agent-view');
+      const pointingView = document.getElementById('pointing-view');
+      const agentTab = document.getElementById('show-agent-view');
+      const pointingTab = document.getElementById('show-pointing-view');
+      const pointEditor = document.getElementById('toggle-admin-hand');
+
+      function setPointEditor(open) {
+        handDrawer.hidden = !open;
+        pointEditor.setAttribute('aria-expanded', String(open));
+        pointEditor.textContent = open ? 'Close target editor' : 'Edit targets';
+        if (open) {
+          loadZones();
+          return;
+        }
         if (adjustModeEnabled) {
           handFrame?.contentWindow?.postMessage({ type: 'ADMIN_TOGGLE_ADJUST' }, '*');
           adjustModeEnabled = false;
-          const adjustButton = document.getElementById('btn-adjust-targets');
-          if (adjustButton) adjustButton.textContent = '[ Move / Resize Targets ]';
+          document.getElementById('btn-adjust-targets').textContent = '[ Move / Resize Targets ]';
         }
         handFrame?.contentWindow?.postMessage({ type: 'ADMIN_CANCEL_DRAWING' }, '*');
+      }
+
+      function showView(showPointing) {
+        (showPointing ? pointingTab : agentTab).focus();
+        agentView.inert = showPointing;
+        pointingView.inert = !showPointing;
+        agentTab.setAttribute('aria-pressed', String(!showPointing));
+        pointingTab.setAttribute('aria-pressed', String(showPointing));
+        if (!showPointing && !handDrawer.hidden) setPointEditor(false);
+      }
+
+      function closeAdmin() {
         workspace?.classList.remove('open');
         workspace?.setAttribute('aria-hidden', 'true');
         restoreNode(faceFeed, faceHome, faceFeedNext);
-        restoreNode(handFeed, handHome, handFeedNext);
         restoreNode(faceDrawer, faceDrawerHome, faceDrawerNext);
-        restoreNode(handDrawer, handDrawerHome, handDrawerNext);
-        [faceFeed, handFeed].forEach(feed => {
-          if (!feed) return;
-          feed.style.aspectRatio = '';
-          feed.style.flex = '';
-          feed.style.height = '';
-          feed.style.alignSelf = '';
-        });
+        if (faceFeed) faceFeed.style.aspectRatio = '';
         document.getElementById('toggle-admin-face')?.classList.remove('active');
-        document.getElementById('toggle-admin-hand')?.classList.remove('active');
       }
-      function setAdminTab(tab) {
-        const isFace = tab === 'face';
-        document.getElementById('admin-view-face')?.classList.toggle('active', isFace);
-        document.getElementById('admin-view-hand')?.classList.toggle('active', !isFace);
-        document.getElementById('admin-tab-face')?.classList.toggle('admin-btn-primary', isFace);
-        document.getElementById('admin-tab-hand')?.classList.toggle('admin-btn-primary', !isFace);
-      }
-      function openAdmin(tab) {
+
+      function openFaceAdmin() {
         moveNode(faceFeed, document.getElementById('admin-face-feed-slot'), faceHome, faceFeedNext);
         moveNode(faceDrawer, document.getElementById('admin-face-tools-slot'), faceDrawerHome, faceDrawerNext);
-        moveNode(handFeed, document.getElementById('admin-hand-feed-slot'), handHome, handFeedNext);
-        moveNode(handDrawer, document.getElementById('admin-hand-tools-slot'), handDrawerHome, handDrawerNext);
-        if (faceFeed) { faceFeed.style.aspectRatio = String(faceFeedAspect); faceFeed.style.flex = '0 0 auto'; faceFeed.style.height = 'auto'; faceFeed.style.alignSelf = 'stretch'; }
-        if (handFeed) { handFeed.style.aspectRatio = String(handFeedAspect); handFeed.style.flex = '0 0 auto'; handFeed.style.height = 'auto'; handFeed.style.alignSelf = 'flex-start'; }
+        if (faceFeed) faceFeed.style.aspectRatio = '16 / 9';
         workspace?.classList.add('open');
         workspace?.setAttribute('aria-hidden', 'false');
-        document.getElementById(tab === 'face' ? 'toggle-admin-face' : 'toggle-admin-hand')?.classList.add('active');
-        setAdminTab(tab);
-        if (tab === 'face') loadUsers();
-        else loadZones();
+        document.getElementById('toggle-admin-face')?.classList.add('active');
+        loadUsers();
       }
-      document.getElementById('toggle-admin-face')?.addEventListener('click', () => openAdmin('face'));
-      document.getElementById('toggle-admin-hand')?.addEventListener('click', () => openAdmin('hand'));
+
+      agentTab.addEventListener('click', () => showView(false));
+      pointingTab.addEventListener('click', () => showView(true));
+      document.getElementById('point-resolution').addEventListener('change', e => {
+        handFrame?.contentWindow?.postMessage({ type: 'SET_POINT_RESOLUTION', resolution: e.target.value }, '*');
+      });
+      pointEditor.addEventListener('click', () => setPointEditor(handDrawer.hidden));
+      document.getElementById('toggle-admin-face')?.addEventListener('click', openFaceAdmin);
       document.getElementById('admin-close')?.addEventListener('click', closeAdmin);
-      document.getElementById('admin-tab-face')?.addEventListener('click', () => { setAdminTab('face'); loadUsers(); });
-      document.getElementById('admin-tab-hand')?.addEventListener('click', () => { setAdminTab('hand'); loadZones(); });
-      document.addEventListener('keydown', e => { if (e.key === 'Escape' && workspace?.classList.contains('open')) closeAdmin(); });
+      document.getElementById('admin-tab-hand')?.addEventListener('click', () => {
+        closeAdmin();
+        showView(true);
+        setPointEditor(true);
+      });
+      document.addEventListener('keydown', e => {
+        if (e.key !== 'Escape') return;
+        if (workspace?.classList.contains('open')) closeAdmin();
+        else if (!handDrawer.hidden) setPointEditor(false);
+      });
 
       document.getElementById('btn-new-face-user')?.addEventListener('click', () => {
         editingUserId = null;

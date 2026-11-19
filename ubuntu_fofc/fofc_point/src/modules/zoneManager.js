@@ -119,6 +119,7 @@ export function isPointInPolygon(px, py, points) {
 export class ZoneManager {
   constructor() {
     this.zones = [];
+    this.mirrored = false;
     this.isDrawingMode = false;
     this.drawMode = 'rect'; // 'rect' or 'polygon'
     this.drawStart = null;
@@ -182,11 +183,7 @@ export class ZoneManager {
           this.zones = this.getDefaultExhibitionZones();
           this.saveToStorage();
         } else {
-          this.zones = parsed;
-          this.zones.forEach((z) => {
-            ensureZonePoints(z);
-            z._dirty = true;
-          });
+          this.replaceZones(parsed);
         }
       } else {
         this.zones = this.getDefaultExhibitionZones();
@@ -195,6 +192,27 @@ export class ZoneManager {
     } catch (e) {
       this.zones = this.getDefaultExhibitionZones();
     }
+  }
+
+  replaceZones(zones) {
+    this.zones = zones.map(zone => {
+      // Targets saved before orientation was recorded used the mirrored default.
+      const wasMirrored = zone.mirrored ?? true;
+      const target = { ...zone, mirrored: this.mirrored, _dirty: true };
+      if (wasMirrored !== this.mirrored) {
+        target.points = getZonePoints(zone).map(({ x, y }) => ({ x: 1 - x, y }));
+        this.recomputeBoundingBox(target);
+      }
+      return target;
+    });
+  }
+
+  setMirrored(mirrored) {
+    this.mirrored = mirrored;
+    if (this.isDrawingMode) this.setDrawMode(this.drawMode);
+    this.setAdjustMode(false);
+    this.replaceZones(this.zones);
+    this.saveToStorage();
   }
 
   saveToStorage() {
@@ -300,6 +318,7 @@ export class ZoneManager {
       voiceMessage: '',
       color,
       type: 'polygon',
+      mirrored: this.mirrored,
       points: pts,
       x: minX,
       y: minY,
@@ -347,8 +366,8 @@ export class ZoneManager {
 
   onMouseMove(e, canvasRect) {
     if (!this.isDrawingMode) return;
-    const currentX = (e.clientX - canvasRect.left) / canvasRect.width;
-    const currentY = (e.clientY - canvasRect.top) / canvasRect.height;
+    const currentX = Math.max(0, Math.min(1, (e.clientX - canvasRect.left) / canvasRect.width));
+    const currentY = Math.max(0, Math.min(1, (e.clientY - canvasRect.top) / canvasRect.height));
     this.currentMousePos = { x: currentX, y: currentY };
 
     if (this.drawMode === 'rect') {
@@ -387,6 +406,7 @@ export class ZoneManager {
         voiceMessage: '',
         color,
         type: 'rect',
+        mirrored: this.mirrored,
         x: minX,
         y: minY,
         w,

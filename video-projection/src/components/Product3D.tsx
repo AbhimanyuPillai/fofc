@@ -4,6 +4,8 @@ import {Suspense, useRef, useState} from 'react';
 import {useFrame, ThreeEvent} from '@react-three/fiber';
 import {Mesh} from 'three';
 import GLBModel from '@/components/ui/GLBModel';
+import CarouselStillPreview, {type CarouselPreview} from './CarouselStillPreview';
+import SelectedCarouselModel from './SelectedCarouselModel';
 import { getCurrentPerformanceConfig } from '@/config/performance';
 import {Html, Text} from "@react-three/drei";
 import {Model3DLoader} from "@/app/3d-demo/component/3d-model-loader";
@@ -11,6 +13,7 @@ import {Model3DLoader} from "@/app/3d-demo/component/3d-model-loader";
 // Get performance configuration based on system capabilities
 const PERF_CONFIG = getCurrentPerformanceConfig();
 const ANIMATION_THROTTLE = PERF_CONFIG.RENDERING.ANIMATION_THROTTLE;
+const SELECTED_MODEL_SPIN_SPEED = 0.6;
 
 interface Product3DProps {
     product: {
@@ -27,6 +30,7 @@ interface Product3DProps {
     position: [number, number, number];
     rotation: [number, number, number];
     isSelected: boolean;
+    stillPreview?: CarouselPreview;
     onSwipeUp?: () => void;
     // Size configuration options
     meshHoverScale?: number;
@@ -44,6 +48,7 @@ export default function Product3D({
                                       position,
                                       rotation,
                                       isSelected,
+                                      stillPreview,
                                       onSwipeUp,
                                       animationsEnabled,
                                       // Default size values
@@ -139,8 +144,12 @@ export default function Product3D({
         lastFrameTimeRef.current = currentTime;
 
         if (meshRef.current && groupRef.current) {
-            // Reduce rotation speed for smoother performance
-            meshRef.current.rotation.y += delta * 0.3;
+            // Keep the still preview and the selected GLB aligned when they switch.
+            if (stillPreview && !isSelected) {
+                meshRef.current.rotation.y = 0;
+            } else {
+                meshRef.current.rotation.y += delta * (stillPreview ? SELECTED_MODEL_SPIN_SPEED : 0.3);
+            }
 
             // Smooth position interpolation with spring-like animation
             const targetX = position[0];
@@ -170,7 +179,7 @@ export default function Product3D({
             groupRef.current.position.z += deltaZ * damping;
 
             // Add floating animation for selected item
-            if (isSelected && !isAnimating) {
+            if (isSelected && !isAnimating && !stillPreview) {
                 groupRef.current.position.y = targetY + Math.sin(state.clock.elapsedTime * 2) * 0.3;
             } else if (!isAnimating) {
                 groupRef.current.position.y += (targetY - currentY) * springStrength * delta * damping;
@@ -243,7 +252,19 @@ export default function Product3D({
                 scale={hovered ? meshHoverScale : 1}
                 position={modelPosition}
             >
-                {product.modelPath ? (
+                {/* Keep the original GLB renderer for the all-GLB comparison. */}
+                {stillPreview && !isSelected ? (
+                    <Suspense fallback={null}>
+                        <CarouselStillPreview preview={stillPreview} />
+                    </Suspense>
+                ) : stillPreview ? (
+                    <SelectedCarouselModel
+                        key={product.modelPath}
+                        modelPath={product.modelPath}
+                        scale={selectedModelScale}
+                        preview={<Suspense fallback={null}><CarouselStillPreview preview={stillPreview} /></Suspense>}
+                    />
+                ) : product.modelPath ? (
                     <Suspense fallback={
                         <Html center>
                         <Model3DLoader />

@@ -7,28 +7,28 @@ import re
 import threading
 from typing import Optional, Callable, Dict, Any
 
-# Wake phrase variants: 'hey repos', 'hay repos', 'ay repos', 'hey repose', 'repos'
+# Wake phrase variants recognized by the existing speech pipeline. Controls must
+# begin with one of these phrases so unrelated or background speech cannot fire them.
 WAKE_PREFIX = r"(?:\b(?:hey|hay|ay)\s+(?:repos|repose|raypos|repo|ripples|rappos)\b|\brepos\b)"
 
 # Actions
 PAUSE_ACTIONS = r"(?:pause\s+(?:the\s+)?(?:video|demo|playback)|pause|freeze|hold\s+on)"
 STOP_ACTIONS = r"(?:stop\s+(?:the\s+)?(?:video|demo|playback)|stop|end\s+(?:the\s+)?(?:video|demo)|close\s+(?:the\s+)?(?:video|demo)|cancel\s+(?:the\s+)?(?:video|demo))"
-RESUME_ACTIONS = r"(?:resume\s+(?:the\s+)?(?:video|demo|playback)|resume|continue\s+(?:the\s+)?(?:video|demo|playback)|continue|play\s+(?:the\s+)?(?:video|demo|playback)|unpause)"
+RESUME_ACTIONS = r"(?:resume\s+(?:the\s+)?(?:video|demo|playback)|resume|continue\s+(?:the\s+)?(?:video|demo|playback)|continue|unpause(?:\s+(?:the\s+)?(?:video|demo|playback))?)"
 
-RE_PAUSE = re.compile(
-    rf"{WAKE_PREFIX}.*?\b{PAUSE_ACTIONS}\b|\b{PAUSE_ACTIONS}\b.*?\b(?:repos|repose)\b",
-    re.IGNORECASE
-)
+CONTROL_POLITE_PREFIX = r"(?:(?:please|can|could|would|you|just|now)\s+)*"
+CONTROL_POLITE_SUFFIX = r"(?:\s+please)?"
 
-RE_STOP = re.compile(
-    rf"{WAKE_PREFIX}.*?\b{STOP_ACTIONS}\b|\b{STOP_ACTIONS}\b.*?\b(?:repos|repose)\b",
-    re.IGNORECASE
-)
+def _control_pattern(actions: str) -> re.Pattern:
+    return re.compile(
+        rf"^{WAKE_PREFIX}\s+{CONTROL_POLITE_PREFIX}(?:{actions}){CONTROL_POLITE_SUFFIX}$",
+        re.IGNORECASE,
+    )
 
-RE_RESUME = re.compile(
-    rf"{WAKE_PREFIX}.*?\b{RESUME_ACTIONS}\b|\b{RESUME_ACTIONS}\b.*?\b(?:repos|repose)\b",
-    re.IGNORECASE
-)
+
+RE_PAUSE = _control_pattern(rf"\b{PAUSE_ACTIONS}\b")
+RE_STOP = _control_pattern(rf"\b{STOP_ACTIONS}\b")
+RE_RESUME = _control_pattern(rf"\b{RESUME_ACTIONS}\b")
 
 class VideoPlaybackController:
     def __init__(self):
@@ -93,20 +93,21 @@ class VideoPlaybackController:
         if action == "play":
             print(f"[VIDEO CONTROLLER] Video started playing (Product ID: {prod_id}). Entering partial standby.")
             self.set_playing(True, prod_id)
-        elif action in ("pause", "stop"):
-            reason = "paused" if action == "pause" else "stopped or finished"
+        elif action in ("pause", "stop", "swap"):
+            reason = {"pause": "paused", "stop": "stopped or finished", "swap": "cleared by a board change"}[action]
             print(f"[VIDEO CONTROLLER] Video {reason}. Exiting partial standby -> Normal conversation mode.")
             if action == "pause" and prod_id is not None:
                 with self._lock:
                     self._last_product_id = prod_id
             self.set_playing(False)
-            if action == "stop":
+            if action in ("stop", "swap"):
                 with self._lock:
                     self._last_product_id = None
 
     def evaluate_standby_speech(self, text: str) -> Optional[str]:
         """
-        Checks if the utterance is a wake + pause/stop/resume command.
+        Checks if the utterance starts with a wake phrase followed by a direct
+        pause/stop/resume command. Extra conversation and negated commands fail closed.
         Returns 'pause', 'stop', 'resume', or None.
         """
         if not text:
@@ -114,12 +115,13 @@ class VideoPlaybackController:
         cleaned = re.sub(r"[^\w\s]", " ", text.lower()).strip()
         cleaned = " ".join(cleaned.split())
 
-        # Check pause first, then stop, then resume
-        if RE_PAUSE.search(cleaned):
+        # Check pause first, then stop, then resume. Patterns are anchored to the
+        # full utterance so incidental mentions do not act as remote controls.
+        if RE_PAUSE.fullmatch(cleaned):
             return "pause"
-        if RE_STOP.search(cleaned):
+        if RE_STOP.fullmatch(cleaned):
             return "stop"
-        if RE_RESUME.search(cleaned):
+        if RE_RESUME.fullmatch(cleaned):
             return "resume"
         return None
 

@@ -22,7 +22,7 @@ class FaceEngine:
         self,
         db: Optional[UserDatabase] = None,
         models_dir: Optional[str] = None,
-        match_threshold: float = 0.38,
+        match_threshold: float = 0.80,
         score_threshold: float = 0.7,
         nms_threshold: float = 0.3,
         initial_input_size: Tuple[int, int] = (640, 480)
@@ -199,7 +199,7 @@ class FaceEngine:
                         best_user_id = uid
                         best_user_info = self.db.get_user(uid)
 
-                # Flag matches >= 0.38 as identified user, else unknown
+                # Only identify an enrolled person once the match reaches the cutoff.
                 if best_score >= self.match_threshold and best_user_info is not None:
                     matched_id = best_user_id
                     display_name = best_user_info.get("display_name", best_user_id)

@@ -376,13 +376,36 @@ def get_active_pointed_context() -> Optional[str]:
         product_id = current_pointed_product_id
     if not board_name:
         return None
-    return (
-        f"[Active Table Context: The visitor is asking about or pointing to {board_name} (software product ID {product_id}). "
-        "Use this only to identify which product the visitor means. For all technical and product facts, use only the approved product information in agent_instructions.md. "
-        "Ignore catalog descriptions, categories, and specifications as sources of product facts. "
-        "If the requested information is not in agent_instructions.md, use its exact fallback sentence. "
-        "Unless the visitor explicitly asks about a different product, ground your answer in the identified product.]"
+    return f"{board_name} (software product ID {product_id})"
+
+
+def is_booth_question(text: str, named_product: bool, has_active_board: bool) -> bool:
+    """Require an actual product question before handing speech to the model."""
+    text = re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+    text = re.sub(r"^(?:hey repos |repos |please |okay |ok )+", "", text)
+    request = re.match(
+        r"(?:(?:can|could|would) you )?(?:tell me|explain|describe|compare|show me|give me)\b"
+        r"|(?:what|how|why|which|where|when|who|does|do|is|are|can|could|will|would|should|did|has|have)\b",
+        text,
     )
+    booth_topic = re.search(
+        r"\b(?:booth|boards?|products?|fuel(?:ling|ing)?|dispensing|sensors?|tank gauges?|atgs?|"
+        r"ratgs?|zone 0|lora wan|lorawan|zigbee|ble|rfid|pto|4g|wi fi|wifi)\b", text,
+    )
+    if request and (named_product or booth_topic):
+        return True
+    if not has_active_board:
+        return False
+    if request and re.search(r"\b(?:it|this|that|they|these|those)\b", text) and re.search(
+        r"\b(?:do|work|use|support|connect|communicate|handle|install|measure|detect|control|"
+        r"operate|report|protect|monitor|store|send|cost|provide|need|require|benefits?|"
+        r"purpose|function|specs?|features?|capacity|rated|safe|compatible|made|built)\b", text,
+    ):
+        return True
+    return bool(re.fullmatch(
+        r"(?:and |what about |how about |tell me about )?(?:offline mode|offline|connectivity|"
+        r"compatibility|specs|specifications|capacity|accuracy|installation|power requirements)", text,
+    ))
 
 
 def latch_hardware_product(product_id: int, source: str, send_to_projection: bool = True) -> bool:
@@ -436,19 +459,21 @@ def handle_video_request(text: str, source: str) -> bool:
 
     Returns True if handled (skips Ollama LLM), False if not a video request.
     """
-    intent = projection_bridge.detect_video_intent(text)
+    controller = video_playback_controller.video_controller
+    control_intent = controller.evaluate_standby_speech(text)
+    intent = control_intent or projection_bridge.detect_video_intent(text)
     if not intent:
         return False
+
+    # Keep pause, stop, and resume on the same strict wake-prefixed command
+    # grammar in both active playback standby and normal conversation mode.
+    if intent in ("pause", "stop", "resume") and control_intent != intent:
+        return False
+
     dashboard_server.record_diagnostic("playback", "command_detected", details={"action": intent, "source": source})
 
-    # For pause, stop, and resume: require the wake word ("Hey Repos") as specified by safety rules
+    # For pause, stop, and resume the strict parser above requires the wake phrase.
     if intent in ("pause", "stop", "resume"):
-        cleaned = " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
-        has_wake = bool(re.search(r"(?:\b(?:hey|hay|ay)\s+(?:repos|repose|raypos|repo|ripples|rappos)\b|\brepos\b)", cleaned))
-        if not has_wake:
-            return False  # General instruction without wake word; do not trigger pause/stop/resume
-
-        controller = video_playback_controller.video_controller
         if intent == "pause" and not controller.is_active():
             msg = "There isn't a demo video playing right now."
             speak_direct(msg, allow_interrupt=False)
@@ -493,9 +518,7 @@ def handle_video_request(text: str, source: str) -> bool:
         return True
 
     if projection_bridge.play_product(product_id):
-        msg = "I'll play the demo video on the TV right now."
-        print(f"[AGENT]: \"{msg}\"")
-        speak_direct(msg, allow_interrupt=False)
+        speak_direct("OK.", allow_interrupt=False)
         return True
     else:
         msg = "I couldn't connect to the TV to start that demo video."
@@ -1048,6 +1071,8 @@ player = PlayerCompat()
 
 PHONETIC_REPLACEMENTS = {
     r"\bRepos\b": "reepoze",
+    r"\bI\.?\s*S\.?[-\s]+Barrier\b": "eyeess Barrier",
+    r"\(\s*(?-i:I\.?\s*S\.?)\s*\)": "eyeess",
 }
 
 TTS_PRONUNCIATIONS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tts_pronunciations.json")
@@ -1077,7 +1102,7 @@ def apply_tts_acronym_pronunciations(text: str) -> str:
         letters = [character for character in acronym if character.isalpha()]
         if not letters:
             continue
-        pattern = r"(?<!\w)" + r"\s*\.?\s*".join(re.escape(letter) for letter in letters) + r"\.?(?!\w)"
+        pattern = r"(?<!\w)" + r"\s*[.\-]?\s*".join(re.escape(letter) for letter in letters) + r"(?!\w)"
         text = re.sub(pattern, lambda _: spoken, text, flags=re.IGNORECASE)
     return text
 
@@ -1113,7 +1138,12 @@ def clean_spoken_text(text: str) -> str:
     return _normalize_speech_text(text)
 
 clean_text_for_tts = clean_spoken_text
-clean_display_text = _normalize_speech_text
+
+def clean_display_text(text: str) -> str:
+    # Strip formatting while preserving catalog punctuation, such as SMART#C and R-ATG.
+    text = re.sub(r"(?m)^\s*#{1,6}[ \t]+", "", text)
+    text = re.sub(r"[*`]", "", text)
+    return " ".join(text.split())
 
 def current_speech_generation() -> int:
     with _speech_generation_lock:
@@ -1581,7 +1611,7 @@ def start_presence_bridge(port: int = 8766):
     threading.Thread(target=_query_initial_presence, daemon=True, name="InitialPresenceSync").start()
 
 
-def stream_brain_to_voice(user_text: str):
+def stream_brain_to_voice(user_text: str, board_context: Optional[str]):
     global dialog_turns, is_agent_speaking, interrupt_requested, primary_user, visitor_queue, _active_brain_response
 
     extend_voice_session()
@@ -1596,6 +1626,8 @@ def stream_brain_to_voice(user_text: str):
 
     recent_dialogue = ""
     for turn in dialog_turns[-4:]:
+        if turn["board_context"] != board_context:
+            continue
         role = primary_name if turn["role"] == "user" else "Jarvis"
         recent_dialogue += f"{role}: {turn['content']}\n"
 
@@ -1604,6 +1636,15 @@ def stream_brain_to_voice(user_text: str):
         f"{primary_name}: {user_text}\n"
         f"Jarvis:"
     )
+
+    turn_instructions = f"\n- Speaking with {primary_name} ({primary_role})."
+    if board_context:
+        turn_instructions += (
+            f"\n- Current board for this turn: {board_context}. "
+            "Resolve 'this board', 'this', and 'it' against this selection. "
+            "An explicitly named product in the current question takes precedence. "
+            "Use only the approved facts for the product the visitor asks about."
+        )
 
     collected_tokens = []
     buffer = ""
@@ -1616,7 +1657,7 @@ def stream_brain_to_voice(user_text: str):
             "http://127.0.0.1:11434/api/generate",
             json={
                 "model": "qwen2.5:3b",
-                "system": system_prompt + f"\n- Speaking with {primary_name} ({primary_role}).",
+                "system": system_prompt + turn_instructions,
                 "prompt": full_prompt,
                 "stream": True,
                 "keep_alive": -1,
@@ -1644,6 +1685,10 @@ def stream_brain_to_voice(user_text: str):
                 token = chunk.get("response", "")
                 buffer += token
                 collected_tokens.append(token)
+                if buffer.lstrip().startswith("[IGNORE]"):
+                    buffer = ""
+                    collected_tokens.clear()
+                    break
 
                 # Send short replies as complete thoughts; stream longer replies in two-sentence phrases.
                 while True:
@@ -1681,8 +1726,8 @@ def stream_brain_to_voice(user_text: str):
 
         full_text = "".join(collected_tokens).strip()
         if full_text and not interrupt_requested and speech_generation_is_current(speech_generation):
-            dialog_turns.append({"role": "user", "content": user_text})
-            dialog_turns.append({"role": "assistant", "content": full_text})
+            dialog_turns.append({"role": "user", "content": user_text, "board_context": board_context})
+            dialog_turns.append({"role": "assistant", "content": full_text, "board_context": board_context})
             if len(dialog_turns) > 4:
                 dialog_turns = dialog_turns[-4:]
 
@@ -1855,12 +1900,15 @@ def main():
                 if handle_video_request(typed_msg, "typed video request"):
                     discard_pending_mic_audio()
                     last_interaction_time = time.time()
+                    state = "ACTIVE"
                     vad_iterator.reset_states()
                     speech_buffer = []
                     pre_buffer.clear()
                     is_speaking_now = False
                     silence_frames = 0
-                    dashboard_server.set_state("ACTIVE")
+                    dashboard_server.set_state(
+                        "VIDEO_PLAYING" if video_playback_controller.video_controller.is_active() else "ACTIVE"
+                    )
                     print("\n[READY - Speak, type next question, or wait for standby...]")
                     continue
 
@@ -1892,21 +1940,22 @@ def main():
                 dashboard_server.set_state("THINKING")
                 dashboard_server.broadcast_transcript("YOU", typed_msg)
                 matched_product = projection_bridge.find_product_by_text(typed_msg)
+                board_context = get_active_pointed_context()
+                if not is_booth_question(typed_msg, matched_product is not None, board_context is not None):
+                    print("[BOOTH GATE] Ignored typed input without a booth question.")
+                    dashboard_server.set_state("ACTIVE")
+                    continue
                 if matched_product:
-                    latch_hardware_product(int(matched_product["id"]), "typed question")
+                    product_id = int(matched_product["id"])
+                    latch_hardware_product(product_id, "typed question")
+                    board_context = f"{matched_product['name']} (software product ID {product_id})"
                 vad_iterator.reset_states()
                 speech_buffer = []
                 pre_buffer.clear()
                 is_speaking_now = False
                 silence_frames = 0
 
-                pointed_context = get_active_pointed_context()
-                if pointed_context:
-                    prompt_with_context = f"{typed_msg}\n{pointed_context}"
-                else:
-                    prompt_with_context = typed_msg
-
-                stream_brain_to_voice(prompt_with_context)
+                stream_brain_to_voice(typed_msg, board_context)
                 last_interaction_time = time.time()
                 vad_iterator.reset_states()
                 pre_buffer.clear()
@@ -1942,6 +1991,7 @@ def main():
 
             # 4. STATE: SLEEPING (Whisper-Powered Standby/Wake Loop)
             if state == "SLEEPING":
+                video_controller = video_playback_controller.video_controller
                 if not is_speaking_now:
                     frame_rms = float(np.sqrt(np.mean(frame**2)))
                     ambient_noise_rms = max(0.002, 0.95 * ambient_noise_rms + 0.05 * frame_rms)
@@ -1967,7 +2017,8 @@ def main():
                     else:
                         silence_frames = 0
 
-                    max_wake_frames = int(2.0 * (SAMPLE_RATE / CHUNK_SIZE))
+                    wake_seconds = 3.5 if video_controller.has_video_session() else 2.0
+                    max_wake_frames = int(wake_seconds * (SAMPLE_RATE / CHUNK_SIZE))
 
                     if silence_frames > SILENCE_LIMIT or len(speech_buffer) >= max_wake_frames:
                         is_speaking_now = False
@@ -1989,6 +2040,17 @@ def main():
                                     condition_on_previous_text=False
                                 )
                                 raw_text = " ".join([s.text for s in segments]).strip()
+                                if (video_controller.has_video_session()
+                                        and video_controller.evaluate_standby_speech(raw_text)
+                                        and handle_video_request(raw_text, "standby video request")):
+                                    discard_pending_mic_audio()
+                                    last_interaction_time = time.time()
+                                    extend_voice_session(last_interaction_time)
+                                    state = "ACTIVE"
+                                    speech_buffer = []
+                                    pre_buffer.clear()
+                                    continue
+
                                 triggered = check_hey_repos_wake(raw_text)
                                 print(f"[WAKE AUDIT]: raw='{raw_text}' -> triggered={triggered}")
 
@@ -2221,23 +2283,18 @@ def main():
                             dashboard_server.set_state("ACTIVE")
                             continue
 
-                        print(f"\n[YOU]: {user_text}")
-                        dashboard_server.record_diagnostic("audio", "utterance_accepted", details={
-                            "speech_rms": round(speech_rms, 5),
-                            "duration_seconds": round(len(full_audio) / SAMPLE_RATE, 2),
-                            "transcription_ms": transcription_ms,
-                        })
-                        dashboard_server.broadcast_transcript("YOU", user_text)
-
                         if handle_video_request(user_text, "spoken video request"):
                             discard_pending_mic_audio()
                             last_interaction_time = time.time()
+                            state = "ACTIVE"
                             vad_iterator.reset_states()
                             speech_buffer = []
                             pre_buffer.clear()
                             is_speaking_now = False
                             silence_frames = 0
-                            dashboard_server.set_state("ACTIVE")
+                            dashboard_server.set_state(
+                                "VIDEO_PLAYING" if video_playback_controller.video_controller.is_active() else "ACTIVE"
+                            )
                             print("\n[READY - Speak, type, or wait for standby...]")
                             continue
 
@@ -2268,16 +2325,27 @@ def main():
                             continue
 
                         matched_product = projection_bridge.find_product_by_text(user_text)
+                        board_context = get_active_pointed_context()
+                        if not is_booth_question(user_text, matched_product is not None, board_context is not None):
+                            print("[BOOTH GATE] Ignored speech without a booth question (spoken).")
+                            dashboard_server.set_state("ACTIVE")
+                            vad_iterator.reset_states()
+                            pre_buffer.clear()
+                            continue
                         if matched_product:
-                            latch_hardware_product(int(matched_product["id"]), "spoken question")
+                            product_id = int(matched_product["id"])
+                            latch_hardware_product(product_id, "spoken question")
+                            board_context = f"{matched_product['name']} (software product ID {product_id})"
 
-                        pointed_context = get_active_pointed_context()
-                        if pointed_context:
-                            prompt_with_context = f"{user_text}\n{pointed_context}"
-                        else:
-                            prompt_with_context = user_text
+                        print(f"\n[YOU]: {user_text}")
+                        dashboard_server.record_diagnostic("audio", "utterance_accepted", details={
+                            "speech_rms": round(speech_rms, 5),
+                            "duration_seconds": round(len(full_audio) / SAMPLE_RATE, 2),
+                            "transcription_ms": transcription_ms,
+                        })
+                        dashboard_server.broadcast_transcript("YOU", user_text)
 
-                        stream_brain_to_voice(prompt_with_context)
+                        stream_brain_to_voice(user_text, board_context)
 
                         last_interaction_time = time.time()
                         vad_iterator.reset_states()

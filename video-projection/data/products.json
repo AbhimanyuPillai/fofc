@@ -2,7 +2,7 @@
   {
     "id": 1,
     "name": "SMART#C",
-    "aliases": ["smart see", "smart sea"],
+    "aliases": ["smart see", "smart sea", "smartcee"],
     "category": "Safety layer",
     "description": "Self Monitored Remote Acceleration and Throttle Controller helps to control the speed of the RFS Power takeoff Unit and disconnects the accelerator to prevent any mishap. ",
     "modelPath": "/3dModels/SMART_C_Final_compressed-1766051222538.glb",
@@ -20,7 +20,7 @@
   {
     "id": 2,
     "name": "R-CAM",
-    "aliases": ["are cam", "our cam"],
+    "aliases": ["are cam", "our cam", "ai camera"],
     "category": "Security layer",
     "description": "100% offline camera system for capturing video of every order and mapping with order ID and exact timestamp on Repos OS",
     "modelPath": "/3dModels/4G_Datalink-1766048649765.glb",
@@ -38,7 +38,7 @@
   {
     "id": 3,
     "name": "R-ATG - Ultrasonic",
-    "aliases": ["r a t g ultrasonic", "are a t g ultrasonic"],
+    "aliases": ["r a t g ultrasonic", "are a t g ultrasonic", "ratg ultrasonic", "ultrasonic atg"],
     "category": "Fuel monitoring layer",
     "description": "Repos ATG - Ultrasonic is a non-invasive fuel monitoring system that uses ultrasonic waves to measure fuel levels in real-time.",
     "modelPath": "/3dModels/Ultrasonic_PCB_Updated-1759316511479-1766051457454.glb",
@@ -57,7 +57,7 @@
     "id": 4,
     "name": "IS-Barrier",
     "spokenName": "I. S. Barrier",
-    "aliases": ["i s barrier", "ice barrier"],
+    "aliases": ["i s barrier", "ice barrier", "isbarrier"],
     "category": "Safety layer",
     "description": "An IS- barrier is a protection device that limits the electrical energy going into hazardous areas, preventing sparks or heat that could ignite fuel vapors.",
     "modelPath": "/3dModels/SMART_C_Final_compressed-1764932728039-1764933252258-1766051420465.glb",
@@ -75,7 +75,7 @@
   {
     "id": 5,
     "name": "R-ATG - Capacitance",
-    "aliases": ["r a t g capacitance", "are a t g capacitance"],
+    "aliases": ["r a t g capacitance", "are a t g capacitance", "ratg capacitive", "ratg capacitance", "capacitive atg"],
     "category": "Fuel Monitoring layer",
     "description": "Repos ATG - Capacitance is a fuel monitoring device which uses uses fuel dielectric constant to measure fuel levels in real-time.",
     "modelPath": "/3dModels/R-ATG_Final_compressed-1766051457944.glb",
@@ -93,7 +93,7 @@
   {
     "id": 6,
     "name": "Data Link",
-    "aliases": ["data lynk", "data link board"],
+    "aliases": ["data lynk", "data link board", "data linc"],
     "category": "Data Sync layer",
     "description": "This device uses 4G network to sync data with the cloud.",
     "modelPath": "/3dModels/4G_Datalink_compressed-1766051464097.glb",
@@ -111,7 +111,7 @@
   {
     "id": 7,
     "name": "Fire Shield",
-    "aliases": ["fire sheild", "fire shield board"],
+    "aliases": ["fire sheild", "fire shield board", "fire suppression system", "automatic fire detection and suppression system"],
     "category": "Safety layer",
     "description": "This device is a Fire detection and suppression system that detects and suppress fires in real-time.",
     "modelPath": "/3dModels/SF_Scanner_compressed-1766051487394.glb",
@@ -129,7 +129,7 @@
   {
     "id": 8,
     "name": "ONE SYNC",
-    "aliases": ["onesync", "one sink", "1 sync", "1sync", "1 sink", "one six"],
+    "aliases": ["onesync", "one sink", "1 sync", "1sync", "1 sink", "one six", "one thing"],
     "category": "Decision layer",
     "description": "ONE SYNC is a brain of the system that controls and monitors all the other devices.",
     "modelPath": "/3dModels/One_Sync-1759317036847-1766051504093.glb",
@@ -147,7 +147,7 @@
   {
     "id": 9,
     "name": "RFID",
-    "aliases": ["r f i d", "are f i d"],
+    "aliases": ["r f i d", "are f i d", "r f id"],
     "category": "Security layer",
     "description": "This device is a RFID system that uses RFID tags to identify and track fueling in real-time.",
     "modelPath": "/3dModels/R-ATG_Final-1759316627785-1766051901975.glb",
@@ -165,7 +165,7 @@
   {
     "id": 10,
     "name": "Secure Fueling",
-    "aliases": ["secure fuelling"],
+    "aliases": ["secure fuelling", "secure fuel ing"],
     "category": "Security layer",
     "description": "This is REPOSs patented technology that ensures secure fueling.",
     "modelPath": "/3dModels/SF-TAG_compressed-1766051537055.glb",

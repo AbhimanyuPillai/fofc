@@ -4,6 +4,20 @@
     "RFID": "R. F. I. D.",
     "IP": "I. P.",
     "CAM": "cam",
-    "IoT": "eye oh tea"
+    "IoT": "eye oh tea",
+    "ATG": "eh tee gee",
+    "ATGs": "eh tee geez",
+    "RATG": "ar eh tee gee",
+    "RATGs": "ar eh tee geez",
+    "BLE": "B. L. E.",
+    "BOS": "bee oh ess",
+    "DU": "dee you",
+    "RPM": "R. P. M.",
+    "PTO": "P. T. O.",
+    "CPU": "C. P. U.",
+    "GPU": "G. P. U.",
+    "LoRaWAN": "lora wan",
+    "WiFi": "why fie",
+    "TOPS": "tops"
   }
 }

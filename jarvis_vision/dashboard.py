@@ -193,7 +193,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       position: relative; width: 100%; aspect-ratio: 4/3; max-height: 420px;
       background: #000; border-radius: 12px; overflow: hidden; border: 1px solid var(--border);
     }
-    video, canvas.overlay { position: absolute; width: 100%; height: 100%; object-fit: cover; }
+    video, canvas.overlay {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: contain; object-position: center;
+    }
     
     .hud-overlay-text {
       position: absolute; bottom: 6px; right: 8px;
@@ -326,7 +329,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <div class="panel-header">
         <h2 class="panel-title">Active Camera HUD</h2>
         <div style="font-size: 0.8rem; font-family: 'JetBrains Mono', monospace; color: var(--cyan);">
-          Cosine Threshold: 0.38
+          Face match required for greeting: __FACE_MATCH_THRESHOLD__
         </div>
       </div>
 
@@ -721,7 +724,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
         overlayCtx.fillStyle = '#ffffff';
         overlayCtx.font = '600 12px Inter';
-        const label = isKnown ? `${d.display_name} (${(d.score*100).toFixed(0)}%)` : 'Unknown Face';
+        const label = isKnown ? `${d.display_name} (${(d.score*100).toFixed(1)}% match)` : 'Unknown Face';
         overlayCtx.fillText(label, x + 6, Math.max(16, y - 7));
       });
     }
@@ -898,7 +901,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_dashboard():
-    return HTMLResponse(content=DASHBOARD_HTML)
+    html = DASHBOARD_HTML.replace("__FACE_MATCH_THRESHOLD__", f"{engine.match_threshold:.0%}")
+    return HTMLResponse(content=html)
 
 @app.get("/api/users")
 async def list_users():
