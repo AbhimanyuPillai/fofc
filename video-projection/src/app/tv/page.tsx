@@ -962,43 +962,41 @@ export default function TVDisplay() {
                                 {isConnected ? 'Experience Future of Fueling' : 'Connecting to main device...'}
                             </p>
 
-                            {isConnected && (
-                                <div className="mx-auto mt-4 grid w-full max-w-3xl grid-cols-1 gap-4 px-6 text-left xl:grid-cols-2">
-                                    <div className="rounded-none border border-cyan-200/15 bg-slate-900/55 px-5 py-4 font-mono backdrop-blur-md">
-                                        <div className="mb-1 flex items-center gap-3">
-                                            <span className="flex h-8 w-8 items-center justify-center border border-cyan-200/15 bg-cyan-300/10 text-cyan-200" aria-hidden="true">
-                                                <Hand className="h-4 w-4 -rotate-12" strokeWidth={1.7} />
-                                            </span>
-                                            <h3 className="text-sm font-bold text-cyan-400">Point to explore</h3>
-                                        </div>
-                                        <p className="pl-[52px] text-sm leading-relaxed text-cyan-300/80">
-                                            Point at any board to select it. Repos will identify the board, switch the conversation to it, and give you a short introduction. Point to another board anytime to switch.
-                                        </p>
+                            <div className="mx-auto mt-4 grid w-full max-w-3xl grid-cols-1 gap-4 px-6 text-left xl:grid-cols-2">
+                                <div className="rounded-none border border-cyan-200/15 bg-slate-900/55 px-5 py-4 font-mono backdrop-blur-md">
+                                    <div className="mb-1 flex items-center gap-3">
+                                        <span className="flex h-8 w-8 items-center justify-center border border-cyan-200/15 bg-cyan-300/10 text-cyan-200" aria-hidden="true">
+                                            <Hand className="h-4 w-4 -rotate-12" strokeWidth={1.7} />
+                                        </span>
+                                        <h3 className="text-sm font-bold text-cyan-400">Point to explore</h3>
                                     </div>
-                                    <div className="rounded-none border border-cyan-200/15 bg-slate-900/55 px-5 py-4 font-mono backdrop-blur-md">
-                                        <div className="mb-1 flex items-center gap-3">
-                                            <span className="flex h-8 w-8 items-center justify-center border border-cyan-200/15 bg-cyan-300/10 text-cyan-200" aria-hidden="true">
-                                                <Mic className="h-4 w-4" strokeWidth={1.7} />
-                                            </span>
-                                            <h3 className="text-sm font-bold text-cyan-400">Ask by voice</h3>
-                                        </div>
-                                        <p className="pl-[52px] text-sm leading-relaxed text-cyan-300/80">
-                                            Ask about the selected board, then follow up naturally. For example: <span className="text-cyan-200">“What does this board do?”</span>
-                                        </p>
-                                    </div>
-                                    <div className="rounded-none border border-cyan-200/15 bg-slate-900/55 px-5 py-4 font-mono backdrop-blur-md xl:col-span-2 xl:w-1/2 xl:justify-self-center">
-                                        <div className="mb-1 flex items-center gap-3">
-                                            <span className="flex h-8 w-8 items-center justify-center border border-cyan-200/15 bg-cyan-300/10 text-cyan-200" aria-hidden="true">
-                                                <Play className="ml-0.5 h-4 w-4" strokeWidth={1.7} />
-                                            </span>
-                                            <h3 className="text-sm font-bold text-cyan-400">Watch a demo</h3>
-                                        </div>
-                                        <p className="pl-[52px] text-sm leading-relaxed text-cyan-300/80">
-                                            Swipe up on the selected board in the showcase, or ask Repos to play its demo video. It will play on this screen.
-                                        </p>
-                                    </div>
+                                    <p className="pl-[52px] text-sm leading-relaxed text-cyan-300/80">
+                                        Point at any board to select it. Repos will identify the board, switch the conversation to it, and give you a short introduction. Point to another board anytime to switch.
+                                    </p>
                                 </div>
-                            )}
+                                <div className="rounded-none border border-cyan-200/15 bg-slate-900/55 px-5 py-4 font-mono backdrop-blur-md">
+                                    <div className="mb-1 flex items-center gap-3">
+                                        <span className="flex h-8 w-8 items-center justify-center border border-cyan-200/15 bg-cyan-300/10 text-cyan-200" aria-hidden="true">
+                                            <Mic className="h-4 w-4" strokeWidth={1.7} />
+                                        </span>
+                                        <h3 className="text-sm font-bold text-cyan-400">Ask by voice</h3>
+                                    </div>
+                                    <p className="pl-[52px] text-sm leading-relaxed text-cyan-300/80">
+                                        Ask about the selected board, then follow up naturally. For example: <span className="text-cyan-200">“What does this board do?”</span>
+                                    </p>
+                                </div>
+                                <div className="rounded-none border border-cyan-200/15 bg-slate-900/55 px-5 py-4 font-mono backdrop-blur-md xl:col-span-2 xl:w-1/2 xl:justify-self-center">
+                                    <div className="mb-1 flex items-center gap-3">
+                                        <span className="flex h-8 w-8 items-center justify-center border border-cyan-200/15 bg-cyan-300/10 text-cyan-200" aria-hidden="true">
+                                            <Play className="ml-0.5 h-4 w-4" strokeWidth={1.7} />
+                                        </span>
+                                        <h3 className="text-sm font-bold text-cyan-400">Watch a demo</h3>
+                                    </div>
+                                    <p className="pl-[52px] text-sm leading-relaxed text-cyan-300/80">
+                                        Swipe up on the selected board in the showcase, or ask Repos to play its demo video. It will play on this screen.
+                                    </p>
+                                </div>
+                            </div>
 
                             <div className="mt-8 flex items-center justify-center space-x-2">
                                 <div
